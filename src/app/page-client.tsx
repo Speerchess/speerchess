@@ -904,7 +904,7 @@ export default function Home() {
         {/* VIEW: REVIEW */}
         {view === 'REVIEW' && analysis && (
           <div className="flex-1 flex flex-col bg-white overflow-hidden">
-            <header className="flex items-center justify-between p-4 bg-white border-b border-stone-200/60 shadow-sm z-10">
+            <header className="flex items-center justify-between py-2 px-4 bg-white border-b border-stone-200/60 shadow-sm z-10">
               <button onClick={() => setView('SUMMARY')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600">
                 <ChevronLeft size={22} />
               </button>
@@ -1017,8 +1017,36 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Navigation Controls (positioned above the Active Move Display) */}
+            <div className="grid grid-cols-4 gap-1 p-2 bg-stone-50/30 border-b border-stone-200/40 text-center">
+              <button 
+                onClick={() => goToMove(-1)}
+                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
+              >
+                처음
+              </button>
+              <button 
+                onClick={handlePrevMove}
+                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
+              >
+                <ChevronLeft size={16} /> 이전
+              </button>
+              <button 
+                onClick={handleNextMove}
+                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
+              >
+                다음 <ChevronRight size={16} />
+              </button>
+              <button 
+                onClick={() => goToMove(analysis.moves.length - 1)}
+                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
+              >
+                마지막
+              </button>
+            </div>
+
             {/* Active Move Display & Mode Tab Toggle Button */}
-            <div className="px-4 py-3 border-b border-stone-200/40 bg-stone-50/40 flex items-center justify-between min-h-[56px]">
+            <div className="px-4 py-1.5 border-b border-stone-200/40 bg-stone-50/40 flex items-center justify-between min-h-[46px]">
               {activeVariationIndex !== null ? (
                 <>
                   <div className="flex items-center gap-3">
@@ -1068,9 +1096,6 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="font-black text-base text-slate-700 mr-2">
-                      {getEvalStr(analysis.moves[currentMoveIndex].evaluation)}
-                    </div>
                     <button 
                       onClick={() => setBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
                       className="p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
@@ -1116,34 +1141,6 @@ export default function Home() {
                   </div>
                 </>
               )}
-            </div>
-
-            {/* Navigation Controls */}
-            <div className="grid grid-cols-4 gap-1 p-2 bg-stone-50/30 border-b border-stone-200/40 text-center">
-              <button 
-                onClick={() => goToMove(-1)}
-                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
-              >
-                처음
-              </button>
-              <button 
-                onClick={handlePrevMove}
-                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
-              >
-                <ChevronLeft size={16} /> 이전
-              </button>
-              <button 
-                onClick={handleNextMove}
-                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
-              >
-                다음 <ChevronRight size={16} />
-              </button>
-              <button 
-                onClick={() => goToMove(analysis.moves.length - 1)}
-                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
-              >
-                마지막
-              </button>
             </div>
 
             {/* TAB CONTENT: MOVES LIST (감상모드) */}
@@ -1279,12 +1276,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Self-Analysis Guide Tip when no moves have been recorded yet */}
-                {analysisPath.length === 0 && (
-                  <div className="p-3 border border-dashed border-stone-200 rounded-xl text-center text-slate-400 text-xs py-4 leading-relaxed bg-white/40">
-                    보드 위의 체스 기물을 드래그해서 자유롭게 움직여보세요! 여기에 탐색한 사이드라인 기보가 괄호() 형태로 인라인 추가됩니다.
-                  </div>
-                )}
+
 
               </div>
             )}
