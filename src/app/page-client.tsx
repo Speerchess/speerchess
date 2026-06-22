@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info } from 'lucide-react';
+import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X } from 'lucide-react';
 import { ChessAnalyzer, GameAnalysis, MoveAnalysis } from '../lib/analyzer';
 import { generateGifClient } from '../lib/gifGeneratorClient';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
@@ -255,6 +255,7 @@ export default function Home() {
 
   const [isSharing, setIsSharing] = useState(false);
   const [sharedHashid, setSharedHashid] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Memoized move pairs for the appreciation mode list to avoid calculating on every single board render
   const movePairs = useMemo(() => {
@@ -730,8 +731,8 @@ export default function Home() {
   // --- Views ---
 
   return (
-    <div className="min-h-screen bg-stone-900 text-slate-800 flex justify-center items-center p-0 sm:p-4 font-sans selection:bg-slate-200 selection:text-slate-900 antialiased">
-      <div className="w-full max-w-md min-h-screen sm:min-h-[850px] sm:max-h-[900px] sm:rounded-3xl sm:shadow-2xl sm:border border-stone-800 bg-[#fafaf9] flex flex-col overflow-hidden relative">
+    <div className="h-screen sm:h-auto sm:min-h-screen bg-stone-900 text-slate-800 flex justify-center items-center p-0 sm:p-4 font-sans selection:bg-slate-200 selection:text-slate-900 antialiased">
+      <div className="w-full max-w-md h-screen sm:h-[880px] sm:min-h-[850px] sm:max-h-[900px] sm:rounded-3xl sm:shadow-2xl sm:border border-stone-800 bg-[#fafaf9] flex flex-col overflow-hidden relative">
         
         {/* VIEW: LOADING */}
         {view === 'LOADING' && (
@@ -911,7 +912,13 @@ export default function Home() {
                 <SpeerLogo className="w-5 h-5 text-slate-800" />
                 <span className="font-black text-base tracking-tight text-slate-800">speerchess</span>
               </div>
-              <div className="w-10"></div>
+              <button 
+                onClick={() => setIsSidebarOpen(true)}
+                className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 relative"
+                title="메뉴"
+              >
+                <Menu size={22} />
+              </button>
             </header>
 
             {/* Chessboard & Eval Bar Container */}
@@ -1282,62 +1289,6 @@ export default function Home() {
               </div>
             )}
             
-            {/* Export Actions Area */}
-            <div className="p-4 border-t border-stone-200/50 bg-white space-y-2 shrink-0">
-              <div className="grid grid-cols-2 gap-2">
-                 <button 
-                   onClick={handleDownloadGif} 
-                   disabled={isExportingGif}
-                   className="bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
-                 >
-                   {isExportingGif ? (
-                     <>
-                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                       생성 중...
-                     </>
-                   ) : (
-                     <>
-                       <Download size={14} />
-                       GIF 내보내기
-                     </>
-                   )}
-                 </button>
-                 <button 
-                   onClick={handleCopyPgn}
-                   className="bg-white hover:bg-stone-50 text-slate-800 font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-stone-300 shadow-sm text-xs active:scale-95 cursor-pointer"
-                 >
-                   <Layers size={14} />
-                   PGN 복사하기
-                 </button>
-              </div>
-              <button 
-                onClick={handleShareGame}
-                disabled={isSharing}
-                className="w-full bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
-              >
-                {isSharing ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    공유 링크 생성 중...
-                  </>
-                ) : sharedHashid ? (
-                  <>
-                    <CheckCircle2 size={14} className="text-green-400" />
-                    링크 복사 완료 (코드: {sharedHashid})
-                  </>
-                ) : (
-                  <>
-                    <Globe size={14} />
-                    분석 게임 공유 링크 생성 (D1 저장)
-                  </>
-                )}
-              </button>
-              {sharedHashid && typeof window !== 'undefined' && (
-                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[10px] text-slate-600 text-center font-mono select-all">
-                  공유 링크: {window.location.origin}/{sharedHashid}
-                </div>
-              )}
-            </div>
           </div>
         )}
 
@@ -1460,6 +1411,109 @@ export default function Home() {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sidebar Drawer Overlay */}
+        {isSidebarOpen && (
+          <div 
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end transition-opacity duration-300"
+            onClick={() => setIsSidebarOpen(false)}
+          >
+            <div 
+              className="w-72 h-full bg-white shadow-2xl p-5 flex flex-col justify-between border-l border-stone-200 transition-transform duration-300 translate-x-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="space-y-6">
+                {/* Sidebar Header */}
+                <div className="flex justify-between items-center pb-4 border-b border-stone-100">
+                  <h3 className="font-black text-sm text-slate-800 uppercase tracking-widest flex items-center gap-1.5">
+                    <Settings size={16} /> 분석 도구 메뉴
+                  </h3>
+                  <button 
+                    onClick={() => setIsSidebarOpen(false)}
+                    className="p-1.5 hover:bg-stone-100 rounded-full transition-colors text-slate-500"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Sidebar Actions */}
+                <div className="space-y-3 pt-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">내보내기 & 공유</span>
+                  
+                  {/* GIF Export */}
+                  <button 
+                    onClick={() => {
+                      setIsSidebarOpen(false);
+                      handleDownloadGif();
+                    }} 
+                    disabled={isExportingGif}
+                    className="w-full bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
+                  >
+                    {isExportingGif ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <Download size={14} />
+                        GIF 내보내기
+                      </>
+                    )}
+                  </button>
+
+                  {/* PGN Copy */}
+                  <button 
+                    onClick={() => {
+                      setIsSidebarOpen(false);
+                      handleCopyPgn();
+                    }}
+                    className="w-full bg-white hover:bg-stone-50 text-slate-800 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-stone-300 shadow-sm text-xs active:scale-95 cursor-pointer"
+                  >
+                    <Layers size={14} />
+                    PGN 복사하기
+                  </button>
+
+                  {/* D1 Share Link */}
+                  <button 
+                    onClick={handleShareGame}
+                    disabled={isSharing}
+                    className="w-full bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
+                  >
+                    {isSharing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        생성 중...
+                      </>
+                    ) : sharedHashid ? (
+                      <>
+                        <CheckCircle2 size={14} className="text-green-400" />
+                        공유 링크 복사 완료
+                      </>
+                    ) : (
+                      <>
+                        <Globe size={14} />
+                        분석 게임 공유 링크 생성
+                      </>
+                    )}
+                  </button>
+
+                  {/* Shared link display */}
+                  {sharedHashid && typeof window !== 'undefined' && (
+                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[10px] text-slate-600 text-center font-mono select-all mt-2">
+                      공유 링크: {window.location.origin}/{sharedHashid}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Sidebar Footer Info */}
+              <div className="text-[9px] text-slate-400 font-bold text-center border-t border-stone-100 pt-4 leading-relaxed">
+                speerchess analysis dashboard<br/>© 2026 speerchess
+              </div>
             </div>
           </div>
         )}
