@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGameRecord, saveGameRecord } from '../../../lib/db';
+import { getGameRecord, saveGameRecord, getAllGameRecords } from '../../../lib/db';
 
 export const runtime = 'edge';
 
@@ -8,7 +8,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const hashid = searchParams.get('hashid');
     if (!hashid) {
-      return NextResponse.json({ error: 'hashid가 필요합니다.' }, { status: 400 });
+      const records = await getAllGameRecords();
+      return NextResponse.json(records);
     }
 
     const record = await getGameRecord(hashid);

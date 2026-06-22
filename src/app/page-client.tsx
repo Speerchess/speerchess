@@ -8,8 +8,9 @@ import { generateGifClient } from '../lib/gifGeneratorClient';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
+import { PRESET_GAMES } from '../lib/preset_games';
 
-type ViewState = 'INPUT' | 'LOADING' | 'SUMMARY' | 'REVIEW';
+type ViewState = 'INPUT' | 'LOADING' | 'SUMMARY' | 'REVIEW' | 'EXPLORE' | 'BRILLIANT' | 'BLUNDER' | 'CHESSLE';
 type ReviewTabState = 'MOVES' | 'ENGINE'; // MOVES: 감상모드, ENGINE: 분석모드
 
 const SPECIAL_CLASSIFICATIONS = ['Brilliant', 'Great', 'Inaccuracy', 'Mistake', 'Blunder'];
@@ -257,6 +258,49 @@ export default function Home() {
   const [sharedHashid, setSharedHashid] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  // New States for Settings, Menu, and views
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
+  
+  // Settings values
+  const [language, setLanguage] = useState<'ko' | 'en'>('ko');
+  const [feedbackRating, setFeedbackRating] = useState<number>(5);
+  const [feedbackText, setFeedbackText] = useState<string>('');
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState<boolean>(false);
+  
+  // Game Explorer / Brilliant / Blunder lists
+  const [dbGames, setDbGames] = useState<any[]>([]);
+  const [loadingDbGames, setLoadingDbGames] = useState<boolean>(false);
+  
+  // Details Modal for Blunder/Brilliant
+  const [selectedHighlight, setSelectedHighlight] = useState<{
+    gameHashid: string;
+    whitePlayer: string;
+    blackPlayer: string;
+    moveIndex: number;
+    moveSan: string;
+    classification: string;
+    evalBefore: number;
+    evalAfter: number;
+    beforeFen: string;
+    afterFen: string;
+    sarcasticComment: string;
+    showAfterBoard: boolean;
+  } | null>(null);
+
+  // Chessle States
+  const [chesslePuzzle, setChesslePuzzle] = useState<any | null>(null);
+  const [chessleMoves, setChessleMoves] = useState<string[]>([]);
+  const [chessleAttempts, setChessleAttempts] = useState<{ moves: string[]; feedback: string[] }[]>([]);
+  const [chessleAttemptCount, setChessleAttemptCount] = useState<number>(0);
+  const [chessleSolved, setChessleSolved] = useState<boolean>(false);
+  const [chessleCorrectMoves, setChessleCorrectMoves] = useState<(string | null)[]>(new Array(10).fill(null));
+  const [chessleAutofill, setChessleAutofill] = useState<boolean>(true);
+  const [chessleFen, setChessleFen] = useState<string>('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+  const [chessleBoardOrientation, setChessleBoardOrientation] = useState<'white' | 'black'>('white');
+  const [showEndPositionHint, setShowEndPositionHint] = useState<boolean>(false);
+  const [showMove7Hint, setShowMove7Hint] = useState<boolean>(false);
+
   // Memoized move pairs for the appreciation mode list to avoid calculating on every single board render
   const movePairs = useMemo(() => {
     if (!analysis) return [];
@@ -305,6 +349,376 @@ export default function Home() {
 
     loadSharedGame();
   }, [hashid]);
+
+  // Load games from D1/API on startup
+  useEffect(() => {
+    const fetchGames = async () => {
+      setLoadingDbGames(true);
+      try {
+        const res = await fetch('/api/games');
+        if (res.ok) {
+          const data = await res.json();
+          setDbGames(data);
+        }
+      } catch (e) {
+        console.error('Error fetching games:', e);
+      } finally {
+        setLoadingDbGames(false);
+      }
+    };
+    fetchGames();
+  }, [view]);
+
+  // Combined games list from database and static presets (unique by hashid)
+  const allGames = useMemo(() => {
+    const combined = [...dbGames];
+    for (const pg of PRESET_GAMES) {
+      if (!combined.some(g => g.hashid === pg.hashid)) {
+        combined.push(pg);
+      }
+    }
+    return combined.sort((a, b) => {
+      const da = new Date(a.created_at || 0).getTime();
+      const db = new Date(b.created_at || 0).getTime();
+      return db - da;
+    });
+  }, [dbGames]);
+
+  // Parse player names from PGN
+  const getPlayersFromPgn = (pgn: string) => {
+    const whiteMatch = pgn.match(/\[White\s+"([^"]+)"\]/);
+    const blackMatch = pgn.match(/\[Black\s+"([^"]+)"\]/);
+    return {
+      white: whiteMatch ? whiteMatch[1] : 'White',
+      black: blackMatch ? blackMatch[1] : 'Black'
+    };
+  };
+
+  // Get FEN after playing moves sequence
+  const getFinalFen = (movesSequence: string) => {
+    const temp = new Chess();
+    const moves = movesSequence.split(' ');
+    for (const m of moves) {
+      try { temp.move(m); } catch (e) {}
+    }
+    return temp.fen();
+  };
+
+  // Filter brilliant moves
+  const brilliantItems = useMemo(() => {
+    const items: any[] = [];
+    for (const g of allGames) {
+      try {
+        const parsed = JSON.parse(g.analysis_json);
+        parsed.moves.forEach((move: any, index: number) => {
+          if (move.classification === 'Brilliant' || move.classification === 'Great') {
+            const players = getPlayersFromPgn(g.pgn);
+            items.push({
+              game: g,
+              whitePlayer: players.white,
+              blackPlayer: players.black,
+              moveIndex: index,
+              moveSan: move.san,
+              classification: move.classification,
+              evalBefore: index > 0 ? parsed.moves[index - 1].evaluation : 0,
+              evalAfter: move.evaluation,
+              beforeFen: (() => {
+                const temp = new Chess();
+                for (let i = 0; i < index; i++) {
+                  try { temp.move(parsed.moves[i].san); } catch (e) {}
+                }
+                return temp.fen();
+              })(),
+              afterFen: (() => {
+                const temp = new Chess();
+                for (let i = 0; i <= index; i++) {
+                  try { temp.move(parsed.moves[i].san); } catch (e) {}
+                }
+                return temp.fen();
+              })(),
+            });
+          }
+        });
+      } catch (e) {}
+    }
+    return items.slice(0, 20); // Top 20 brilliant moves (4x5 grid)
+  }, [allGames]);
+
+  // Filter blunder moves
+  const blunderItems = useMemo(() => {
+    const items: any[] = [];
+    for (const g of allGames) {
+      try {
+        const parsed = JSON.parse(g.analysis_json);
+        parsed.moves.forEach((move: any, index: number) => {
+          if (move.classification === 'Blunder') {
+            const players = getPlayersFromPgn(g.pgn);
+            items.push({
+              game: g,
+              whitePlayer: players.white,
+              blackPlayer: players.black,
+              moveIndex: index,
+              moveSan: move.san,
+              classification: move.classification,
+              evalBefore: index > 0 ? parsed.moves[index - 1].evaluation : 0,
+              evalAfter: move.evaluation,
+              beforeFen: (() => {
+                const temp = new Chess();
+                for (let i = 0; i < index; i++) {
+                  try { temp.move(parsed.moves[i].san); } catch (e) {}
+                }
+                return temp.fen();
+              })(),
+              afterFen: (() => {
+                const temp = new Chess();
+                for (let i = 0; i <= index; i++) {
+                  try { temp.move(parsed.moves[i].san); } catch (e) {}
+                }
+                return temp.fen();
+              })(),
+              sarcasticComment: (() => {
+                const comments = [
+                  "상대방에게 대범하게 기물을 적선했군요. 혹시 체스판 위의 산타클로스인가요?",
+                  "컴퓨터가 이 수를 연산하는 도중 칩셋에 불이 날 뻔했습니다.",
+                  "엄청난 블런더입니다! 상대방이 기쁨의 춤을 추고 있겠네요.",
+                  "기물을 고스란히 바치는 훌륭한 평화주의적인 플레이입니다.",
+                  "마우스 미스가 아니라 인생 최고의 실수가 여기 등장했습니다.",
+                  "체스판 위의 비극입니다. 두 눈을 뜨고 둔 것이 정말 맞습니까?",
+                  "이 수는 체스 역사에 '가장 엉뚱한 수'로 기록될 가치가 있습니다."
+                ];
+                const hash = (g.hashid.charCodeAt(0) || 0) + index;
+                return comments[hash % comments.length];
+              })()
+            });
+          }
+        });
+      } catch (e) {}
+    }
+    return items.slice(0, 20); // Top 20 blunder moves (4x5 grid)
+  }, [allGames]);
+
+  // Load game instantly in SPA mode and update URL
+  const loadGameByHashid = async (targetHashid: string) => {
+    setView('LOADING');
+    setProgress(0);
+    setQuote(quotes[Math.floor(Math.random() * quotes.length)]);
+    
+    // Check presets first
+    const preset = PRESET_GAMES.find(g => g.hashid === targetHashid);
+    if (preset) {
+      const gameAnalysis = JSON.parse(preset.analysis_json);
+      setAnalysis(gameAnalysis);
+      reviewChess.loadPgn(preset.pgn);
+      setFen(new Chess().fen());
+      setCurrentMoveIndex(-1);
+      setSharedHashid(targetHashid);
+      window.history.pushState({}, '', `/${targetHashid}`);
+      setView('SUMMARY');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/games?hashid=${targetHashid}`);
+      if (res.ok) {
+        const data = await res.json();
+        const gameAnalysis = JSON.parse(data.analysis_json);
+        setAnalysis(gameAnalysis);
+        reviewChess.loadPgn(data.pgn);
+        setFen(new Chess().fen());
+        setCurrentMoveIndex(-1);
+        setSharedHashid(targetHashid);
+        window.history.pushState({}, '', `/${targetHashid}`);
+        setView('SUMMARY');
+      } else {
+        throw new Error('Failed to load game');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('게임을 로드하는 중 오류가 발생했습니다.');
+      setView('INPUT');
+    }
+  };
+
+  // Start Chessle Wordle game
+  const startChessleGame = (puzzleGame: any) => {
+    let movesList: string[] = [];
+    try {
+      const parsed = JSON.parse(puzzleGame.analysis_json);
+      movesList = parsed.moves.slice(0, 10).map((m: any) => m.san);
+    } catch (e) {
+      movesList = ["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "Ng5", "d5", "exd5", "Nxd5"];
+    }
+
+    if (movesList.length < 10) {
+      movesList = ["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "Ng5", "d5", "exd5", "Nxd5"];
+    }
+
+    const puzzle = {
+      hashid: puzzleGame.hashid,
+      moves: movesList,
+      startFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      endFen: (() => {
+        const temp = new Chess();
+        for (const m of movesList) {
+          try { temp.move(m); } catch (e) {}
+        }
+        return temp.fen();
+      })(),
+      move7w: movesList[6] || null,
+      move7b: movesList[7] || null,
+      sourceUrl: `/${puzzleGame.hashid}`,
+      fullPgn: puzzleGame.pgn
+    };
+
+    setChesslePuzzle(puzzle);
+    setChessleMoves([]);
+    setChessleAttempts([]);
+    setChessleAttemptCount(0);
+    setChessleSolved(false);
+    setChessleCorrectMoves(new Array(10).fill(null));
+    setChessleFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    setChessleBoardOrientation('white');
+    setShowEndPositionHint(false);
+    setShowMove7Hint(false);
+    setView('CHESSLE');
+  };
+
+  // Trigger autofill of previously correct moves
+  const triggerChessleAutofill = (puzzle: any, correctList: (string | null)[]) => {
+    const tempChess = new Chess(puzzle.startFen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    const filledMoves: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const correctMove = correctList[i];
+      if (!correctMove) break;
+      try {
+        tempChess.move(correctMove);
+        filledMoves.push(correctMove);
+      } catch (e) {
+        break;
+      }
+    }
+    setChessleMoves(filledMoves);
+    setChessleFen(tempChess.fen());
+  };
+
+  // Chessle board move handler
+  const handleChesslePieceDrop = (args: { piece: any; sourceSquare: string; targetSquare: string | null }): boolean => {
+    const { sourceSquare, targetSquare } = args;
+    if (!targetSquare) return false;
+    if (chessleMoves.length >= 10 || chessleSolved || chessleAttemptCount >= 6 || !chesslePuzzle) return false;
+    
+    const tempChess = new Chess(chessleFen);
+    try {
+      const moveResult = tempChess.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: 'q'
+      });
+      
+      if (moveResult) {
+        const newMoves = [...chessleMoves, moveResult.san];
+        setChessleMoves(newMoves);
+        setChessleFen(tempChess.fen());
+        return true;
+      }
+    } catch (e) {
+      return false;
+    }
+    return false;
+  };
+
+  // Chessle undo move
+  const handleChessleUndo = () => {
+    if (chessleMoves.length === 0 || !chesslePuzzle) return;
+    const lastIdx = chessleMoves.length - 1;
+    if (chessleAutofill && chessleCorrectMoves[lastIdx]) return; // Cannot undo correct autofilled moves
+    
+    const newMoves = chessleMoves.slice(0, -1);
+    const tempChess = new Chess(chesslePuzzle.startFen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    for (const m of newMoves) {
+      try { tempChess.move(m); } catch (e) {}
+    }
+    setChessleMoves(newMoves);
+    setChessleFen(tempChess.fen());
+  };
+
+  // Calculate Chessle Wordle feedback
+  const calcChessleFeedback = (guess: string[], answer: string[]) => {
+    const fb = new Array(10).fill('absent');
+    const aUsed = new Array(10).fill(false);
+    const gUsed = new Array(10).fill(false);
+
+    // Pass 1: correct (green)
+    for (let i = 0; i < 10; i++) {
+      if (guess[i] === answer[i]) {
+        fb[i] = 'correct';
+        aUsed[i] = true;
+        gUsed[i] = true;
+      }
+    }
+    // Pass 2: present (yellow)
+    for (let i = 0; i < 10; i++) {
+      if (gUsed[i]) continue;
+      for (let j = 0; j < 10; j++) {
+        if (aUsed[j]) continue;
+        if (guess[i] === answer[j]) {
+          fb[i] = 'present';
+          aUsed[j] = true;
+          break;
+        }
+      }
+    }
+    return fb;
+  };
+
+  // Submit Chessle guess
+  const handleChessleSubmit = () => {
+    if (chessleMoves.length < 10 || !chesslePuzzle) return;
+    
+    const answer = chesslePuzzle.moves;
+    const guess = chessleMoves;
+    const fb = calcChessleFeedback(guess, answer);
+    
+    const newAttempt = { moves: [...guess], feedback: fb };
+    const nextAttempts = [...chessleAttempts, newAttempt];
+    setChessleAttempts(nextAttempts);
+    
+    const nextCount = chessleAttemptCount + 1;
+    setChessleAttemptCount(nextCount);
+    
+    const nextCorrect = [...chessleCorrectMoves];
+    for (let i = 0; i < 10; i++) {
+      if (fb[i] === 'correct') {
+        nextCorrect[i] = guess[i];
+      }
+    }
+    setChessleCorrectMoves(nextCorrect);
+    
+    const won = fb.every(f => f === 'correct');
+    if (won) {
+      setChessleSolved(true);
+    } else if (nextCount >= 6) {
+      // Game over (failed)
+    } else {
+      // Setup board for next attempt, play autofill
+      const startPos = chesslePuzzle.startFen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const tempChess = new Chess(startPos);
+      const filledMoves: string[] = [];
+      if (chessleAutofill) {
+        for (let i = 0; i < 10; i++) {
+          if (!nextCorrect[i]) break;
+          try {
+            tempChess.move(nextCorrect[i]!);
+            filledMoves.push(nextCorrect[i]!);
+          } catch (e) {
+            break;
+          }
+        }
+      }
+      setChessleMoves(filledMoves);
+      setChessleFen(tempChess.fen());
+    }
+  };
 
   useEffect(() => {
     analyzerRef.current = new ChessAnalyzer();
@@ -1286,9 +1700,31 @@ export default function Home() {
 
         {/* VIEW: INPUT */}
         {view === 'INPUT' && (
-          <div className="flex-1 flex flex-col bg-white overflow-y-auto no-scrollbar">
+          <div className="flex-1 flex flex-col bg-white overflow-y-auto no-scrollbar relative">
+            {/* Home Top Bar */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-stone-200/40 bg-stone-50/25 shrink-0">
+              <button 
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-slate-600 cursor-pointer"
+                title="설정"
+              >
+                <Settings size={20} />
+              </button>
+              <div className="flex items-center gap-1">
+                <SpeerLogo className="w-4 h-4 text-slate-800" />
+                <span className="font-extrabold text-sm tracking-tight text-slate-800">speerchess</span>
+              </div>
+              <button 
+                onClick={() => setIsMenuOpen(true)}
+                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-slate-600 cursor-pointer"
+                title="메뉴"
+              >
+                <Menu size={20} />
+              </button>
+            </div>
+
             {/* Header */}
-            <div className="text-center py-8 px-6 space-y-2 border-b border-stone-200/40 bg-stone-50/20">
+            <div className="text-center py-8 px-6 space-y-2 border-b border-stone-200/40 bg-stone-50/20 shrink-0">
               <div className="flex justify-center">
                 <SpeerLogo className="w-10 h-10 text-slate-800" />
               </div>
@@ -1510,6 +1946,704 @@ export default function Home() {
           </div>
         )}
 
+
+        {/* Settings Sidebar */}
+        {isSettingsOpen && (
+          <div className="fixed inset-0 bg-black/40 z-40 transition-opacity" onClick={() => setIsSettingsOpen(false)} />
+        )}
+        <div className={`fixed top-0 bottom-0 left-0 w-80 bg-white shadow-2xl z-50 transform transition-transform duration-300 ${isSettingsOpen ? 'translate-x-0' : '-translate-x-full'} flex flex-col`}>
+          <div className="flex items-center justify-between p-4 border-b border-stone-200/60 shrink-0">
+            <h2 className="font-black text-lg text-slate-850 flex items-center gap-1.5">
+              <Settings size={20} className="text-slate-700" />
+              {language === 'ko' ? '설정' : 'Settings'}
+            </h2>
+            <button onClick={() => setIsSettingsOpen(false)} className="p-1.5 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5 space-y-6">
+            {/* Language Selection */}
+            <div className="space-y-2">
+              <label className="text-xs font-black text-slate-500 uppercase tracking-wider">
+                {language === 'ko' ? '언어 설정' : 'Language'}
+              </label>
+              <div className="grid grid-cols-2 gap-2 bg-stone-100 p-1 rounded-xl">
+                <button 
+                  onClick={() => setLanguage('ko')}
+                  className={`py-1.5 text-xs font-bold rounded-lg transition-all ${language === 'ko' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  한국어
+                </button>
+                <button 
+                  onClick={() => setLanguage('en')}
+                  className={`py-1.5 text-xs font-bold rounded-lg transition-all ${language === 'en' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  English
+                </button>
+              </div>
+            </div>
+
+            {/* Feedback Form */}
+            <div className="space-y-3 pt-4 border-t border-stone-100">
+              <label className="text-xs font-black text-slate-500 uppercase tracking-wider block">
+                {language === 'ko' ? '의견 및 피드백' : 'Send Feedback'}
+              </label>
+              {feedbackSubmitted ? (
+                <div className="bg-green-50 border border-green-200 text-green-800 text-xs p-3 rounded-xl font-medium text-center">
+                  {language === 'ko' ? '소중한 의견 감사드립니다!' : 'Thank you for your feedback!'}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex gap-1 justify-center py-1">
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button 
+                        key={star}
+                        onClick={() => setFeedbackRating(star)}
+                        className="text-xl cursor-pointer transition-all active:scale-90"
+                      >
+                        {star <= feedbackRating ? '★' : '☆'}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea 
+                    value={feedbackText}
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    placeholder={language === 'ko' ? '의견을 입력해 주세요...' : 'Write your comment...'}
+                    className="w-full h-20 p-2.5 bg-stone-50 border border-stone-250 rounded-xl focus:ring-1 focus:ring-slate-800 focus:border-slate-800 outline-none text-xs text-slate-700 resize-none shadow-inner"
+                  />
+                  <button 
+                    onClick={() => {
+                      if (feedbackText.trim()) {
+                        setFeedbackSubmitted(true);
+                        setFeedbackText('');
+                        setTimeout(() => setFeedbackSubmitted(false), 3000);
+                      }
+                    }}
+                    className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                  >
+                    {language === 'ko' ? '보내기' : 'Submit'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* About App */}
+            <div className="space-y-2 pt-4 border-t border-stone-100 text-xs">
+              <label className="text-xs font-black text-slate-500 uppercase tracking-wider block">
+                {language === 'ko' ? '사이트 소개' : 'About Site'}
+              </label>
+              <p className="text-slate-600 leading-relaxed font-medium">
+                {language === 'ko' ? (
+                  'speerchess는 초경량 엔진 기술(Stockfish)과 엣지 데이터베이스(Cloudflare D1)를 활용한 차세대 기보 복기 및 체스 오프닝 퍼즐 분석 웹 서비스입니다. 쾌적한 피드백 환경을 위해 최선을 다하고 있습니다.'
+                ) : (
+                  'speerchess is a next-generation chess game analysis tool powered by Stockfish and Cloudflare D1 edge database. It offers clean game review and interactive chess puzzles.'
+                )}
+              </p>
+            </div>
+
+            {/* Privacy Policy */}
+            <div className="space-y-2 pt-4 border-t border-stone-100 text-[10px] text-slate-500">
+              <label className="text-xs font-black text-slate-500 uppercase tracking-wider block">
+                {language === 'ko' ? '개인정보 처리방침' : 'Privacy Policy'}
+              </label>
+              <p className="leading-relaxed">
+                {language === 'ko' ? (
+                  'speerchess는 회원가입을 받지 않으며 어떠한 개인 정보도 저장하지 않습니다. 기보 분석 시 입력한 PGN 및 분석 데이터는 공유 링크 생성을 위해 암호화되어 안전하게 보관됩니다.'
+                ) : (
+                  'speerchess does not require registration and stores no personal data. Game data is stored securely and anonymously when creating shared analysis links.'
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="p-4 border-t border-stone-100 text-center text-[10px] text-slate-400 font-bold shrink-0">
+            speerchess v1.2.0
+          </div>
+        </div>
+
+        {/* Menu Sidebar */}
+        {isMenuOpen && (
+          <div className="fixed inset-0 bg-black/40 z-40 transition-opacity" onClick={() => setIsMenuOpen(false)} />
+        )}
+        <div className={`fixed top-0 bottom-0 right-0 w-80 bg-white shadow-2xl z-50 transform transition-transform duration-300 ${isMenuOpen ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
+          <div className="flex items-center justify-between p-4 border-b border-stone-200/60 shrink-0">
+            <h2 className="font-black text-lg text-slate-850 flex items-center gap-1.5">
+              <Menu size={20} className="text-slate-700" />
+              {language === 'ko' ? '메뉴' : 'Menu'}
+            </h2>
+            <button onClick={() => setIsMenuOpen(false)} className="p-1.5 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {/* Explore Games button */}
+            <button 
+              onClick={() => {
+                setIsMenuOpen(false);
+                setView('EXPLORE');
+              }}
+              className="w-full text-left p-4 rounded-xl border border-stone-200/60 hover:bg-stone-50 transition-all font-bold text-slate-800 flex justify-between items-center cursor-pointer group"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xl">🎲</span>
+                <span className="text-sm">{language === 'ko' ? '게임 탐색하기' : 'Explore Games'}</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+
+            {/* Brilliant Repository button */}
+            <button 
+              onClick={() => {
+                setIsMenuOpen(false);
+                setView('BRILLIANT');
+              }}
+              className="w-full text-left p-4 rounded-xl border border-stone-200/60 hover:bg-stone-50 transition-all font-bold text-slate-800 flex justify-between items-center cursor-pointer group"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xl">!!</span>
+                <span className="text-sm">{language === 'ko' ? '탁월 저장소' : 'Brilliant Repository'}</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+
+            {/* Blunder Repository button */}
+            <button 
+              onClick={() => {
+                setIsMenuOpen(false);
+                setView('BLUNDER');
+              }}
+              className="w-full text-left p-4 rounded-xl border border-stone-200/60 hover:bg-stone-50 transition-all font-bold text-slate-800 flex justify-between items-center cursor-pointer group"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xl">??</span>
+                <span className="text-sm">{language === 'ko' ? '블런더 저장소' : 'Blunder Repository'}</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+
+            {/* Chessle button */}
+            <button 
+              onClick={() => {
+                setIsMenuOpen(false);
+                const randomGame = allGames.length > 0 ? allGames[Math.floor(Math.random() * allGames.length)] : PRESET_GAMES[0];
+                startChessleGame(randomGame);
+              }}
+              className="w-full text-left p-4 rounded-xl border border-stone-200/60 hover:bg-stone-50 transition-all font-bold text-slate-800 flex justify-between items-center cursor-pointer group"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xl">🧩</span>
+                <span className="text-sm">{language === 'ko' ? 'Chessle (체슬)' : 'Chessle (Puzzle)'}</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          </div>
+          <div className="p-4 border-t border-stone-100 text-center text-[10px] text-slate-400 font-bold leading-relaxed shrink-0">
+            speerchess menu panel<br/>© 2026 speerchess
+          </div>
+        </div>
+
+        {/* VIEW: EXPLORE */}
+        {view === 'EXPLORE' && (
+          <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
+            <header className="flex items-center justify-between py-3 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
+              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+                <ChevronLeft size={22} />
+              </button>
+              <h2 className="font-black text-base text-slate-850">
+                {language === 'ko' ? '게임 탐색하기' : 'Explore Games'}
+              </h2>
+              <div className="w-10"></div>
+            </header>
+            
+            <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
+              {loadingDbGames ? (
+                <div className="w-full h-64 flex flex-col items-center justify-center gap-2">
+                  <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+                  <span className="text-xs font-bold text-slate-500">데이터를 불러오는 중...</span>
+                </div>
+              ) : allGames.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 font-bold text-xs">
+                  저장된 게임이 없습니다.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-12">
+                  {allGames.slice(0, 20).map((game) => {
+                    const players = getPlayersFromPgn(game.pgn);
+                    const finalFen = getFinalFen(game.moves_sequence);
+                    return (
+                      <div 
+                        key={game.hashid} 
+                        onClick={() => loadGameByHashid(game.hashid)}
+                        className="bg-white rounded-2xl border border-stone-200/60 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98"
+                      >
+                        <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-150">
+                          <Chessboard 
+                            options={{
+                              position: finalFen,
+                              allowDragging: false
+                            }}
+                          />
+                        </div>
+                        <div className="w-full text-center space-y-0.5">
+                          <div className="text-xs font-black text-slate-800 truncate px-1">
+                            {players.white} vs {players.black}
+                          </div>
+                          <div className="text-[9px] text-slate-450 font-bold">
+                            {new Date(game.created_at || '').toLocaleDateString(language === 'ko' ? 'ko-KR' : 'en-US', {
+                              year: 'numeric', month: 'short', day: 'numeric'
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: BRILLIANT */}
+        {view === 'BRILLIANT' && (
+          <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
+            <header className="flex items-center justify-between py-3 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
+              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+                <ChevronLeft size={22} />
+              </button>
+              <h2 className="font-black text-base text-slate-850">
+                {language === 'ko' ? '!! 탁월 저장소' : '!! Brilliant Repository'}
+              </h2>
+              <div className="w-10"></div>
+            </header>
+            
+            <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
+              {brilliantItems.length === 0 ? (
+                <div className="text-center py-20 text-slate-400 font-bold text-xs">
+                  {language === 'ko' ? '저장된 탁월/우수 수가 없습니다. 경기를 분석해서 남겨보세요!' : 'No Brilliant or Great moves stored yet.'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-12">
+                  {brilliantItems.map((item, idx) => (
+                    <div 
+                      key={`${item.game.hashid}-${idx}`}
+                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: true })}
+                      className="bg-white rounded-2xl border border-stone-200/60 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative"
+                    >
+                      <span className={`absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm ${
+                        item.classification === 'Brilliant' ? 'bg-cyan-500 text-white' : 'bg-sky-500 text-white'
+                      }`}>
+                        {item.classification === 'Brilliant' ? '!! Brilliant' : '! Great'}
+                      </span>
+                      <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-150 relative">
+                        <Chessboard 
+                          options={{
+                            position: item.afterFen,
+                            allowDragging: false
+                          }}
+                        />
+                      </div>
+                      <div className="w-full text-center space-y-0.5">
+                        <div className="text-xs font-black text-slate-800 truncate">
+                          {item.whitePlayer} vs {item.blackPlayer}
+                        </div>
+                        <div className="text-[10px] font-black text-cyan-600">
+                          {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: BLUNDER */}
+        {view === 'BLUNDER' && (
+          <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
+            <header className="flex items-center justify-between py-3 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
+              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+                <ChevronLeft size={22} />
+              </button>
+              <h2 className="font-black text-base text-slate-850">
+                {language === 'ko' ? '?? 블런더 저장소' : '?? Blunder Repository'}
+              </h2>
+              <div className="w-10"></div>
+            </header>
+            
+            <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
+              {blunderItems.length === 0 ? (
+                <div className="text-center py-20 text-slate-400 font-bold text-xs">
+                  {language === 'ko' ? '저장된 블런더 실수가 없습니다. 체스판의 평화가 유지되고 있습니다!' : 'No Blunders stored yet.'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-12">
+                  {blunderItems.map((item, idx) => (
+                    <div 
+                      key={`${item.game.hashid}-${idx}`}
+                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: true })}
+                      className="bg-white rounded-2xl border border-stone-200/60 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative"
+                    >
+                      <span className="absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm">
+                        ?? Blunder
+                      </span>
+                      <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-150 relative">
+                        <Chessboard 
+                          options={{
+                            position: item.afterFen,
+                            allowDragging: false
+                          }}
+                        />
+                      </div>
+                      <div className="w-full text-center space-y-0.5">
+                        <div className="text-xs font-black text-slate-800 truncate">
+                          {item.whitePlayer} vs {item.blackPlayer}
+                        </div>
+                        <div className="text-[10px] font-black text-red-600">
+                          {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Highlight Comparison Modal */}
+        {selectedHighlight && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl space-y-4 border border-stone-100 flex flex-col">
+              <div className="flex justify-between items-center pb-2 border-b border-stone-100 shrink-0">
+                <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${
+                  selectedHighlight.classification === 'Brilliant' ? 'bg-cyan-100 text-cyan-800' :
+                  selectedHighlight.classification === 'Great' ? 'bg-sky-100 text-sky-800' :
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {selectedHighlight.classification === 'Brilliant' ? '!! Brilliant' :
+                   selectedHighlight.classification === 'Great' ? '! Great' :
+                   '?? Blunder'}
+                </span>
+                <button 
+                  onClick={() => setSelectedHighlight(null)}
+                  className="p-1 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5 bg-stone-100 p-1 rounded-xl shrink-0">
+                <button 
+                  onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: false } : null)}
+                  className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${!selectedHighlight.showAfterBoard ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  {language === 'ko' ? '수 두기 전 (Before)' : 'Before'}
+                </button>
+                <button 
+                  onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: true } : null)}
+                  className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${selectedHighlight.showAfterBoard ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  {language === 'ko' ? '수 둔 후 (After)' : 'After'}
+                </button>
+              </div>
+
+              <div className="w-full aspect-square overflow-hidden rounded-2xl border border-stone-200/80 shadow-md">
+                <Chessboard 
+                  options={{
+                    position: selectedHighlight.showAfterBoard ? selectedHighlight.afterFen : selectedHighlight.beforeFen,
+                    allowDragging: false
+                  }}
+                />
+              </div>
+
+              <div className="text-center space-y-1 font-bold">
+                <div className="text-[10px] text-slate-400 uppercase tracking-widest truncate">
+                  {selectedHighlight.whitePlayer} vs {selectedHighlight.blackPlayer}
+                </div>
+                <div className="text-base text-slate-850 font-black">
+                  {Math.floor(selectedHighlight.moveIndex / 2) + 1}. {selectedHighlight.moveIndex % 2 === 0 ? '백' : '흑'} {selectedHighlight.moveSan}
+                </div>
+                <div className="text-xs text-slate-600 font-bold">
+                  {language === 'ko' ? '평가치' : 'Evaluation'}: {' '}
+                  <span className="font-extrabold">
+                    {selectedHighlight.evalBefore > 0 ? `+${(selectedHighlight.evalBefore/100).toFixed(1)}` : (selectedHighlight.evalBefore/100).toFixed(1)}
+                  </span>
+                  {' → '}
+                  <span className="font-extrabold text-slate-850">
+                    {selectedHighlight.evalAfter > 0 ? `+${(selectedHighlight.evalAfter/100).toFixed(1)}` : (selectedHighlight.evalAfter/100).toFixed(1)}
+                  </span>
+                </div>
+              </div>
+
+              {selectedHighlight.classification === 'Blunder' && selectedHighlight.sarcasticComment && (
+                <div className="bg-red-50/50 border border-red-150/40 p-3 rounded-2xl text-xs text-red-800 text-center leading-relaxed font-semibold">
+                  😂 {selectedHighlight.sarcasticComment}
+                </div>
+              )}
+
+              <button 
+                onClick={() => {
+                  const hash = selectedHighlight.gameHashid;
+                  setSelectedHighlight(null);
+                  loadGameByHashid(hash);
+                }}
+                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-3 rounded-2xl text-xs transition-all shadow-md cursor-pointer shrink-0 active:scale-98 font-sans"
+              >
+                {language === 'ko' ? '전체 경기 분석 보기' : 'View Full Game Analysis'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: CHESSLE */}
+        {view === 'CHESSLE' && chesslePuzzle && (
+          <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
+            <header className="flex items-center justify-between py-2 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
+              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+                <ChevronLeft size={22} />
+              </button>
+              <div className="text-center">
+                <h2 className="font-black text-sm text-slate-850">
+                  {language === 'ko' ? '🧩 Chessle (체슬)' : '🧩 Chessle'}
+                </h2>
+                <div className="text-[9px] font-black text-slate-400 tracking-wider">
+                  시도 {chessleAttemptCount}/6
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button 
+                  onClick={() => setChessleBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
+                  className="p-1.5 hover:bg-stone-100 rounded-lg text-slate-600 cursor-pointer font-bold text-xs"
+                  title="보드 뒤집기"
+                >
+                  ⇅
+                </button>
+                <button 
+                  onClick={() => setChessleAutofill(prev => !prev)}
+                  className={`px-2 py-1 rounded-lg text-[9px] font-black border transition-all cursor-pointer ${
+                    chessleAutofill ? 'bg-slate-800 text-white border-slate-800 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:bg-stone-50'
+                  }`}
+                  title="자동 채우기"
+                >
+                  {language === 'ko' ? '자동채움' : 'Autofill'}
+                </button>
+              </div>
+            </header>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar flex flex-col items-center justify-between">
+              <div className="w-full aspect-square max-w-[340px] overflow-hidden rounded-2xl shadow-md border border-stone-200 bg-white shrink-0">
+                <Chessboard 
+                  options={{
+                    position: chessleFen,
+                    boardOrientation: chessleBoardOrientation,
+                    onPieceDrop: handleChesslePieceDrop,
+                    allowDragging: chessleMoves.length < 10 && !chessleSolved && chessleAttemptCount < 6
+                  }}
+                />
+              </div>
+
+              <div className="w-full max-w-[340px] space-y-1.5 shrink-0">
+                <div className="text-[9px] font-black text-slate-450 uppercase tracking-widest text-center">
+                  {language === 'ko' ? '현재 추측 중인 수 (10개 반수)' : 'Current Guess Sequence (10 half-moves)'}
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {new Array(10).fill(null).map((_, i) => {
+                    const move = chessleMoves[i];
+                    const isCorrectAutofilled = chessleAutofill && chessleCorrectMoves[i];
+                    return (
+                      <div 
+                        key={i} 
+                        className={`h-9 border rounded-xl flex items-center justify-center font-extrabold text-xs transition-all ${
+                          move ? (
+                            isCorrectAutofilled ? 'bg-green-500 text-white border-green-500' :
+                            i % 2 === 0 ? 'bg-slate-800 text-white border-slate-800' : 'bg-slate-100 text-slate-700 border-stone-200'
+                          ) : (
+                            i === chessleMoves.length ? 'border-slate-800 ring-2 ring-slate-800/20 bg-white' : 'border-dashed border-stone-250 bg-stone-50/50'
+                          )
+                        }`}
+                      >
+                        {move || ''}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="w-full max-w-[340px] grid grid-cols-2 gap-3 shrink-0">
+                <button 
+                  onClick={handleChessleUndo}
+                  disabled={chessleMoves.length === 0 || (chessleAutofill && chessleCorrectMoves[chessleMoves.length - 1] !== null)}
+                  className="bg-white hover:bg-stone-50 border border-stone-250 text-slate-700 font-bold py-3 rounded-2xl text-xs transition-all active:scale-95 disabled:opacity-40 cursor-pointer shadow-sm"
+                >
+                  {language === 'ko' ? '↩ 되돌리기' : '↩ Undo'}
+                </button>
+                <button 
+                  onClick={handleChessleSubmit}
+                  disabled={chessleMoves.length < 10}
+                  className="bg-slate-800 hover:bg-slate-750 disabled:opacity-45 text-white font-bold py-3 rounded-2xl text-xs transition-all active:scale-95 cursor-pointer shadow-md"
+                >
+                  {language === 'ko' ? '추측 제출 (Submit)' : 'Submit Guess'}
+                </button>
+              </div>
+
+              <div className="w-full max-w-[340px] flex-1 py-4 flex flex-col justify-start gap-2 overflow-y-auto">
+                <div className="text-[9px] font-black text-slate-450 uppercase tracking-widest text-center border-b border-stone-200/50 pb-1 shrink-0">
+                  {language === 'ko' ? '시도 기록 (Feedback)' : 'Attempts History'}
+                </div>
+                <div className="space-y-1.5 w-full">
+                  {chessleAttempts.length === 0 ? (
+                    <div className="text-center text-[10px] text-slate-400 font-bold py-4">
+                      {language === 'ko' ? '상대방의 오프닝 5수(10개 반수)를 유추해보세요!' : 'Guess the opening moves sequence!'}
+                    </div>
+                  ) : (
+                    chessleAttempts.map((att, attIdx) => (
+                      <div key={attIdx} className="grid grid-cols-10 gap-1 text-[10px] font-black w-full">
+                        {att.moves.map((move, moveIdx) => {
+                          const status = att.feedback[moveIdx];
+                          return (
+                            <div 
+                              key={moveIdx} 
+                              className={`h-7 rounded-lg flex items-center justify-center text-white text-[9px] truncate ${
+                                status === 'correct' ? 'bg-green-600 shadow-sm shadow-green-600/20' :
+                                status === 'present' ? 'bg-yellow-500 shadow-sm shadow-yellow-500/20 text-slate-900' :
+                                'bg-stone-400'
+                              }`}
+                              title={status}
+                            >
+                              {move}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="w-full max-w-[340px] grid grid-cols-2 gap-2 pt-2 border-t border-stone-200/40 shrink-0">
+                <button 
+                  onClick={() => setShowEndPositionHint(true)}
+                  className="bg-stone-100 hover:bg-stone-200 text-slate-700 font-bold py-2 rounded-xl text-[10px] transition-all cursor-pointer"
+                >
+                  🏁 {language === 'ko' ? '종료 포지션 힌트' : 'End Position Hint'}
+                </button>
+                <button 
+                  onClick={() => setShowMove7Hint(true)}
+                  className="bg-stone-100 hover:bg-stone-200 text-slate-700 font-bold py-2 rounded-xl text-[10px] transition-all cursor-pointer"
+                >
+                  7️⃣ {language === 'ko' ? '7번째 수 힌트' : '7th Move Hint'}
+                </button>
+              </div>
+            </div>
+
+            {showEndPositionHint && (
+              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl space-y-4 border border-stone-100 text-center flex flex-col animate-fade-in">
+                  <div className="flex justify-between items-center pb-2 border-b border-stone-100 shrink-0">
+                    <span className="text-xs font-black text-slate-800">🏁 {language === 'ko' ? '종료 포지션 힌트' : 'End Position Hint'}</span>
+                    <button onClick={() => setShowEndPositionHint(false)} className="p-1 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="w-full aspect-square overflow-hidden rounded-2xl border border-stone-200 shadow-md">
+                    <Chessboard options={{ position: chesslePuzzle.endFen, allowDragging: false }} />
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold">
+                    {language === 'ko' ? '10개 반수(5수)가 모두 진행된 후의 보드 배치입니다.' : 'This is the position after all 10 moves.'}
+                  </p>
+                  <button 
+                    onClick={() => setShowEndPositionHint(false)}
+                    className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                  >
+                    {language === 'ko' ? '닫기' : 'Close'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {showMove7Hint && (
+              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl w-full max-w-xs p-5 shadow-2xl space-y-4 border border-stone-100 text-center flex flex-col animate-fade-in">
+                  <div className="flex justify-between items-center pb-2 border-b border-stone-100 shrink-0">
+                    <span className="text-xs font-black text-slate-800">7️⃣ {language === 'ko' ? '7번째 수 힌트' : '7th Move Hint'}</span>
+                    <button onClick={() => setShowMove7Hint(false)} className="p-1 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="space-y-2 py-4">
+                    <div className="flex justify-between items-center bg-stone-50 p-2.5 rounded-xl border border-stone-150">
+                      <span className="text-xs font-bold text-slate-400">{language === 'ko' ? '7번째 수 (백)' : '7th Move (White)'}</span>
+                      <span className="text-sm font-black text-slate-800">{chesslePuzzle.move7w}</span>
+                    </div>
+                    <div className="flex justify-between items-center bg-stone-50 p-2.5 rounded-xl border border-stone-150">
+                      <span className="text-xs font-bold text-slate-400">{language === 'ko' ? '8번째 수 (흑)' : '8th Move (Black)'}</span>
+                      <span className="text-sm font-black text-slate-800">{chesslePuzzle.move7b}</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowMove7Hint(false)}
+                    className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                  >
+                    {language === 'ko' ? '닫기' : 'Close'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(chessleSolved || chessleAttemptCount >= 6) && (
+              <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 animate-fade-in">
+                <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center space-y-4 border border-stone-100 flex flex-col">
+                  <div className="text-5xl animate-bounce">
+                    {chessleSolved ? '🎉' : '😢'}
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-855">
+                    {chessleSolved ? (language === 'ko' ? '훌륭합니다!' : 'Brilliant!') : (language === 'ko' ? '아쉽습니다!' : 'Almost!')}
+                  </h3>
+                  <p className="text-xs font-bold text-slate-500">
+                    {chessleSolved ? (
+                      language === 'ko' ? `${chessleAttemptCount}회 시도만에 맞추셨습니다!` : `Solved in ${chessleAttemptCount}/6 attempts!`
+                    ) : (
+                      language === 'ko' ? '체슬을 풀지 못했습니다. 다음 기회에 도전하세요!' : 'Failed to solve this time!'
+                    )}
+                  </p>
+
+                  <div className="space-y-1">
+                    <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{language === 'ko' ? '정답 기보' : 'Correct Answer'}</div>
+                    <div className="grid grid-cols-5 gap-1 text-[10px] font-black">
+                      {chesslePuzzle.moves.map((m: string, i: number) => (
+                        <div key={i} className="h-7 rounded-lg flex items-center justify-center bg-green-600 text-white font-extrabold text-[9px]">
+                          {m}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button 
+                      onClick={() => {
+                        const randomGame = allGames.length > 0 ? allGames[Math.floor(Math.random() * allGames.length)] : PRESET_GAMES[0];
+                        startChessleGame(randomGame);
+                      }}
+                      className="bg-stone-100 hover:bg-stone-200 text-slate-800 font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer shadow-sm"
+                    >
+                      🔄 {language === 'ko' ? '다시 플레이' : 'Play Again'}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        const hash = chesslePuzzle.hashid;
+                        setChesslePuzzle(null);
+                        loadGameByHashid(hash);
+                      }}
+                      className="bg-slate-800 hover:bg-slate-750 text-white font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer shadow-md"
+                    >
+                      🔍 {language === 'ko' ? '복기하러 가기' : 'Review Game'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

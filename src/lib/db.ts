@@ -156,3 +156,20 @@ export async function saveGameRecord(
     return finalHashid;
   }
 }
+
+// Get all game records (or fallback)
+export async function getAllGameRecords(): Promise<GameRecord[]> {
+  const db = await getDb();
+  if (db) {
+    const { results } = await db.prepare("SELECT * FROM games ORDER BY id DESC").all();
+    return (results || []).map((record: any) => ({
+      hashid: record.hashid as string,
+      moves_sequence: record.moves_sequence as string,
+      pgn: record.pgn as string,
+      analysis_json: record.analysis_json as string,
+      created_at: record.created_at as string
+    }));
+  } else {
+    return loadFallbackDb().slice().reverse();
+  }
+}
