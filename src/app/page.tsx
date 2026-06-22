@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
+
+export const runtime = 'edge';
 import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info } from 'lucide-react';
 import { ChessAnalyzer, GameAnalysis, MoveAnalysis } from '../lib/analyzer';
 import { generateGifClient } from '../lib/gifGeneratorClient';
