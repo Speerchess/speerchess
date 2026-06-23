@@ -30,6 +30,50 @@ const boardThemes = {
   cobalt: { dark: '#1e3a8a', light: '#dbeafe', name: '스피어 코발트' }
 };
 
+// Convert Stockfish UCI PV moves (e.g. "g2d5 e6d5") into Standard Algebraic Notation (SAN) (e.g. "1... Bxd5 2. exd5")
+const uciPvToSan = (fen: string, pv: string): string => {
+  try {
+    const chess = new Chess(fen);
+    const uciMoves = pv.trim().split(/\s+/);
+    
+    // Parse FEN fullmove count
+    const fenParts = fen.split(' ');
+    let fullmoveNumber = parseInt(fenParts[5] || '1', 10);
+    
+    let formatted = '';
+    for (let i = 0; i < uciMoves.length; i++) {
+      const uci = uciMoves[i];
+      if (!uci) continue;
+      
+      const from = uci.slice(0, 2);
+      const to = uci.slice(2, 4);
+      const promotion = uci.slice(4, 5) || undefined;
+      
+      const activeColor = chess.turn();
+      const moveObj = chess.move({ from, to, promotion });
+      const san = moveObj.san;
+      
+      if (i === 0) {
+        if (activeColor === 'w') {
+          formatted += `${fullmoveNumber}. ${san}`;
+        } else {
+          formatted += `${fullmoveNumber}... ${san}`;
+        }
+      } else {
+        if (activeColor === 'w') {
+          fullmoveNumber++;
+          formatted += ` ${fullmoveNumber}. ${san}`;
+        } else {
+          formatted += ` ${san}`;
+        }
+      }
+    }
+    return formatted;
+  } catch (err) {
+    return pv;
+  }
+};
+
 const SAMPLE_PGN_FULL = `[Event "Fried Liver Attack"]
 [Result "0-1"]
 
@@ -239,6 +283,10 @@ export default function Home() {
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
   const [reviewChess] = useState(new Chess());
   const [fen, setFen] = useState(reviewChess.fen());
+  const fenRef = useRef(fen);
+  useEffect(() => {
+    fenRef.current = fen;
+  }, [fen]);
 
   // Review view tab state (MOVES: 감상모드, ENGINE: 분석모드)
   const [reviewTab, setReviewTab] = useState<ReviewTabState>('MOVES');
@@ -350,11 +398,13 @@ export default function Home() {
           // Only update if it is a meaningful search depth
           const currentDepth = depthMatch ? parseInt(depthMatch[1], 10) : 0;
           if (currentDepth >= 4) {
+            // Convert coordinate PV to algebraic notation (SAN) using active FEN
+            const sanPv = uciPvToSan(fenRef.current, pv);
             tempLinesRef.current[multipv] = {
               multipv,
               score,
               isMate,
-              pv
+              pv: sanPv
             };
             const sortedLines = Object.values(tempLinesRef.current).sort((a, b) => a.multipv - b.multipv);
             setEngineLines(sortedLines);
