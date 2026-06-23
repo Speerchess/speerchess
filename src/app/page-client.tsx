@@ -159,11 +159,41 @@ const getPgnFromUrl = async (url: string): Promise<string> => {
   throw new Error('올바른 Lichess 링크 또는 PGN 기보를 입력해 주세요.');
 };
 
-const getGameResult = (pgnText: string) => {
-  if (pgnText.includes('[Result "1-0"]')) return '백 (White) 승리';
-  if (pgnText.includes('[Result "0-1"]')) return '흑 (Black) 승리';
-  if (pgnText.includes('[Result "1/2-1/2"]')) return '무승부 (Draw)';
-  return '분석 완료';
+const getGameResult = (pgnText: string, lang: 'ko' | 'en' = 'ko') => {
+  const match = pgnText.match(/\[Result\s+"([^"]+)"\]/i);
+  let result = match ? match[1] : '';
+  
+  if (!result || result === '*' || result === '?') {
+    const trimmed = pgnText.trim();
+    if (trimmed.endsWith('1-0')) result = '1-0';
+    else if (trimmed.endsWith('0-1')) result = '0-1';
+    else if (trimmed.endsWith('1/2-1/2')) result = '1/2-1/2';
+  }
+  
+  if (!result || result === '*' || result === '?') {
+    try {
+      const c = new Chess();
+      c.loadPgn(pgnText);
+      if (c.isGameOver()) {
+        if (c.isCheckmate()) {
+          result = c.turn() === 'w' ? '0-1' : '1-0';
+        } else {
+          result = '1/2-1/2';
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (result === '1-0') {
+    return lang === 'ko' ? '백 (White) 승리' : 'White Won';
+  }
+  if (result === '0-1') {
+    return lang === 'ko' ? '흑 (Black) 승리' : 'Black Won';
+  }
+  if (result === '1/2-1/2') {
+    return lang === 'ko' ? '무승부 (Draw)' : 'Draw';
+  }
+  return lang === 'ko' ? '분석 완료' : 'Analysis Complete';
 };
 
 // Custom Speer Logo (Minimalist spear head representation)
@@ -1115,7 +1145,28 @@ export default function Home() {
     const whiteElo = (analysis && analysis.whiteElo) ? String(analysis.whiteElo) : getHeaderFromPgn(pgn, 'WhiteElo');
     const blackElo = (analysis && analysis.blackElo) ? String(analysis.blackElo) : getHeaderFromPgn(pgn, 'BlackElo');
     const rawTimeControl = getHeaderFromPgn(pgn, 'TimeControl');
-    const result = getHeaderFromPgn(pgn, 'Result') || '*';
+    
+    let result = getHeaderFromPgn(pgn, 'Result');
+    if (!result || result === '*' || result === '?') {
+      const trimmedPgn = pgn.trim();
+      if (trimmedPgn.endsWith('1-0')) result = '1-0';
+      else if (trimmedPgn.endsWith('0-1')) result = '0-1';
+      else if (trimmedPgn.endsWith('1/2-1/2')) result = '1/2-1/2';
+    }
+    if (!result || result === '*' || result === '?') {
+      try {
+        const c = new Chess();
+        analysis.moves.forEach(m => c.move(m.san));
+        if (c.isGameOver()) {
+          if (c.isCheckmate()) {
+            result = c.turn() === 'w' ? '0-1' : '1-0';
+          } else {
+            result = '1/2-1/2';
+          }
+        }
+      } catch (e) {}
+    }
+    if (!result) result = '*';
     
     let timeControl = '';
     if (rawTimeControl && rawTimeControl !== '-' && rawTimeControl !== '?') {
@@ -1288,7 +1339,7 @@ export default function Home() {
             <main className="p-4 space-y-4 flex-1">
               <div className="bg-white rounded-2xl shadow-sm border border-stone-200/50 p-5 space-y-1">
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">경기 결과</span>
-                <h2 className="text-2xl font-black text-slate-850">{getGameResult(pgn)}</h2>
+                <h2 className="text-2xl font-black text-slate-850">{getGameResult(pgn, language)}</h2>
               </div>
 
               {/* Graph Card */}
@@ -2296,6 +2347,9 @@ export default function Home() {
                         <div className="w-full text-center space-y-0.5">
                           <div className="text-xs font-black text-slate-800 truncate px-1">
                             {players.white} vs {players.black}
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-500">
+                            {getGameResult(game.pgn, language)}
                           </div>
                           <div className="text-[9px] text-slate-450 font-bold">
                             {new Date(game.created_at || '').toLocaleDateString(language === 'ko' ? 'ko-KR' : 'en-US', {
