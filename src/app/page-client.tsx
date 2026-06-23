@@ -383,6 +383,7 @@ export default function Home() {
         const gameAnalysis = JSON.parse(data.analysis_json);
         setAnalysis(gameAnalysis);
         reviewChess.loadPgn(data.pgn);
+        setPgn(data.pgn);
         setFen(new Chess().fen());
         setCurrentMoveIndex(-1);
         
@@ -567,6 +568,7 @@ export default function Home() {
       const gameAnalysis = JSON.parse(preset.analysis_json);
       setAnalysis(gameAnalysis);
       reviewChess.loadPgn(preset.pgn);
+      setPgn(preset.pgn);
       setFen(new Chess().fen());
       setCurrentMoveIndex(-1);
       setSharedHashid(targetHashid);
@@ -582,6 +584,7 @@ export default function Home() {
         const gameAnalysis = JSON.parse(data.analysis_json);
         setAnalysis(gameAnalysis);
         reviewChess.loadPgn(data.pgn);
+        setPgn(data.pgn);
         setFen(new Chess().fen());
         setCurrentMoveIndex(-1);
         setSharedHashid(targetHashid);
@@ -1101,9 +1104,29 @@ export default function Home() {
     if (!analysis) return pgn;
     let pgnResult = '';
     
-    pgnResult += `[Event "Speerchess Analysis"]\n`;
-    pgnResult += `[Site "speerchess.com"]\n`;
-    pgnResult += `[Date "${new Date().toISOString().split('T')[0].replace(/-/g, '.')}"]\n\n`;
+    const getHeaderFromPgn = (pgnString: string, headerName: string): string => {
+      const regex = new RegExp(`\\[${headerName}\\s+"([^"]*)"\\]`);
+      const match = pgnString ? pgnString.match(regex) : null;
+      return match ? match[1] : '';
+    };
+
+    const event = getHeaderFromPgn(pgn, 'Event') || 'Speerchess Analysis';
+    const site = getHeaderFromPgn(pgn, 'Site') || 'speerchess.com';
+    const date = getHeaderFromPgn(pgn, 'Date') || new Date().toISOString().split('T')[0].replace(/-/g, '.');
+    const white = getHeaderFromPgn(pgn, 'White');
+    const black = getHeaderFromPgn(pgn, 'Black');
+    const whiteElo = getHeaderFromPgn(pgn, 'WhiteElo');
+    const blackElo = getHeaderFromPgn(pgn, 'BlackElo');
+    const timeControl = getHeaderFromPgn(pgn, 'TimeControl');
+
+    pgnResult += `[Event "${event}"]\n`;
+    pgnResult += `[Site "${site}"]\n`;
+    pgnResult += `[Date "${date}"]\n`;
+    pgnResult += `[White "${white || ''}"]\n`;
+    pgnResult += `[Black "${black || ''}"]\n`;
+    pgnResult += `[WhiteElo "${whiteElo || ''}"]\n`;
+    pgnResult += `[BlackElo "${blackElo || ''}"]\n`;
+    pgnResult += `[TimeControl "${timeControl || ''}"]\n\n`;
 
     analysis.moves.forEach((move, index) => {
       const isWhite = index % 2 === 0;
