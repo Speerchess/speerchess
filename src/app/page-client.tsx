@@ -232,6 +232,7 @@ export default function Home() {
   // Settings
   const [depth, setDepth] = useState<12 | 14 | 16>(14);
   const [boardTheme, setBoardTheme] = useState<'slate' | 'emerald' | 'cobalt'>('slate');
+  const [settingsModalType, setSettingsModalType] = useState<'about' | 'privacy' | null>(null);
 
   const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
   const analyzerRef = useRef<ChessAnalyzer | null>(null);
@@ -2027,32 +2028,30 @@ export default function Home() {
               )}
             </div>
 
-            {/* About App */}
-            <div className="space-y-2 pt-4 border-t border-stone-100 text-xs">
-              <label className="text-xs font-black text-slate-500 uppercase tracking-wider block">
-                {language === 'ko' ? '사이트 소개' : 'About Site'}
-              </label>
-              <p className="text-slate-600 leading-relaxed font-medium">
-                {language === 'ko' ? (
-                  'speerchess는 초경량 엔진 기술(Stockfish)과 엣지 데이터베이스(Cloudflare D1)를 활용한 차세대 기보 복기 및 체스 오프닝 퍼즐 분석 웹 서비스입니다. 쾌적한 피드백 환경을 위해 최선을 다하고 있습니다.'
-                ) : (
-                  'speerchess is a next-generation chess game analysis tool powered by Stockfish and Cloudflare D1 edge database. It offers clean game review and interactive chess puzzles.'
-                )}
-              </p>
+            {/* About App Button */}
+            <div className="pt-4 border-t border-stone-100">
+              <button
+                onClick={() => setSettingsModalType('about')}
+                className="w-full flex items-center justify-between p-3 bg-stone-50 hover:bg-stone-100 border border-stone-200/85 rounded-xl text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-sm active:scale-98"
+              >
+                <span className="flex items-center gap-1.5">
+                  ℹ️ {language === 'ko' ? '사이트 소개' : 'About Site'}
+                </span>
+                <ChevronRight size={16} className="text-slate-400" />
+              </button>
             </div>
 
-            {/* Privacy Policy */}
-            <div className="space-y-2 pt-4 border-t border-stone-100 text-[10px] text-slate-500">
-              <label className="text-xs font-black text-slate-500 uppercase tracking-wider block">
-                {language === 'ko' ? '개인정보 처리방침' : 'Privacy Policy'}
-              </label>
-              <p className="leading-relaxed">
-                {language === 'ko' ? (
-                  'speerchess는 회원가입을 받지 않으며 어떠한 개인 정보도 저장하지 않습니다. 기보 분석 시 입력한 PGN 및 분석 데이터는 공유 링크 생성을 위해 암호화되어 안전하게 보관됩니다.'
-                ) : (
-                  'speerchess does not require registration and stores no personal data. Game data is stored securely and anonymously when creating shared analysis links.'
-                )}
-              </p>
+            {/* Privacy Policy Button */}
+            <div className="pt-3">
+              <button
+                onClick={() => setSettingsModalType('privacy')}
+                className="w-full flex items-center justify-between p-3 bg-stone-50 hover:bg-stone-100 border border-stone-200/85 rounded-xl text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-sm active:scale-98"
+              >
+                <span className="flex items-center gap-1.5">
+                  🔒 {language === 'ko' ? '개인정보 처리방침' : 'Privacy Policy'}
+                </span>
+                <ChevronRight size={16} className="text-slate-400" />
+              </button>
             </div>
           </div>
           <div className="p-4 border-t border-stone-100 text-center text-[10px] text-slate-400 font-bold shrink-0">
@@ -2642,6 +2641,96 @@ export default function Home() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Settings Modal (About / Privacy) */}
+        {settingsModalType && (
+          <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={() => setSettingsModalType(null)}>
+            <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden border border-stone-100 flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-5 border-b border-stone-100 shrink-0">
+                <h3 className="font-black text-slate-855 text-base">
+                  {settingsModalType === 'about' 
+                    ? (language === 'ko' ? '사이트 소개' : 'About Site')
+                    : (language === 'ko' ? '개인정보 처리방침' : 'Privacy Policy')
+                  }
+                </h3>
+                <button 
+                  onClick={() => setSettingsModalType(null)} 
+                  className="p-1.5 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-600 leading-relaxed font-medium">
+                {settingsModalType === 'about' ? (
+                  language === 'ko' ? (
+                    <>
+                      <p className="font-bold text-slate-800 text-sm mb-1">👋 speerchess에 오신 것을 환영합니다!</p>
+                      <p>
+                        speerchess는 초경량 Stockfish 체스 엔진(WebAssembly)과 Cloudflare D1 엣지 데이터베이스 기술을 결합하여, 언제 어디서나 끊김 없이 나만의 기보를 복기하고 분석할 수 있는 차세대 웹 플랫폼입니다.
+                      </p>
+                      <p className="font-bold text-slate-800 mt-2">💡 주요 특징</p>
+                      <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-500">
+                        <li><b>실시간 Stockfish 분석</b>: 로컬 브라우저에서 Stockfish 엔진이 연동되어 즉시 최선의 수 추천과 평가지 슬라이더를 띄워줍니다.</li>
+                        <li><b>원클릭 링크 공유</b>: 내 분석과 변수(Variation)들을 저장하고 고유 단축 공유 링크로 간편하게 타인에게 공유할 수 있습니다.</li>
+                        <li><b>체슬 (Chessle) 퍼즐</b>: 저장된 PGN 기보 데이터를 바탕으로 진행되는 5수 오프닝 맞추기 미니게임을 제공합니다.</li>
+                        <li><b>블런더 & 탁월 저장소</b>: 분석된 게임에서 묘수(Brilliant)와 최악의 수(Blunder)를 모아서 보드로 확인하고 위트 있는 조롱 코멘트를 즐길 수 있습니다.</li>
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold text-slate-800 text-sm mb-1">👋 Welcome to speerchess!</p>
+                      <p>
+                        speerchess is a next-generation chess analysis web app combining Stockfish WASM engine and Cloudflare D1 edge database technologies.
+                      </p>
+                      <p className="font-bold text-slate-800 mt-2">💡 Key Features</p>
+                      <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-500">
+                        <li><b>Live Engine Analysis</b>: Client-side Stockfish evaluation with sliders.</li>
+                        <li><b>Link Sharing</b>: Encoded, deduplicated D1 cloud backup of parsed PGN structures.</li>
+                        <li><b>Chessle Game</b>: 5-move opening guessing game based on active chess games.</li>
+                        <li><b>Brilliant / Blunder Repository</b>: Quick review grids for top moves and tactical mistakes.</li>
+                      </ul>
+                    </>
+                  )
+                ) : (
+                  language === 'ko' ? (
+                    <>
+                      <p className="font-bold text-slate-800 text-sm mb-1">🔒 회원가입 없는 안전한 익명 서비스</p>
+                      <p>
+                        speerchess는 사용자의 어떤 개인 정보도 요구하거나 수집하지 않으며, 회원 가입 기능 자체가 존재하지 않는 순수 유틸리티 웹 서비스입니다.
+                      </p>
+                      <p className="font-bold text-slate-800 mt-2">🛡️ 데이터 보관 방침</p>
+                      <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-500">
+                        <li><b>PGN 데이터 저장</b>: 분석 공유 버튼을 눌렀을 때 생성되는 PGN 텍스트와 엔진 평가 결과값은 고유 해시 ID(Hashid) 생성을 위해 데이터베이스에 암호화 저장됩니다. 이는 누구나 볼 수 있는 오픈 링크 공유 목적으로만 사용됩니다.</li>
+                        <li><b>쿠키 및 브라우저 저장소</b>: 사용자의 선택 언어 설정 등 로컬 테마/인터페이스 상태 유지를 위한 최소한의 데이터만 브라우저 LocalStorage에 보관하며, 마케팅/트래킹 쿠키는 사용하지 않습니다.</li>
+                        <li><b>기기 정보</b>: 사이트 성능 모니터링 및 속도 조절 목적 이외의 어떠한 유저 행동 추적 도구도 내장하고 있지 않습니다.</li>
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold text-slate-800 text-sm mb-1">🔒 Secure & Anonymous Service</p>
+                      <p>
+                        speerchess does not request, track, or store any personal data. There is no user registration or sign-in.
+                      </p>
+                      <p className="font-bold text-slate-800 mt-2">🛡️ Data Policy</p>
+                      <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-500">
+                        <li><b>PGN Game Data</b>: PGN text strings and computer evals are encrypted and cached in Cloudflare D1 databases for shared link generation.</li>
+                        <li><b>Local Storage</b>: Standard key-values (e.g. language preferences) are stored strictly on your local browser. We do not use advertising or tracking cookies.</li>
+                      </ul>
+                    </>
+                  )
+                )}
+              </div>
+              <div className="p-4 border-t border-stone-100 bg-stone-50 shrink-0 text-right">
+                <button 
+                  onClick={() => setSettingsModalType(null)} 
+                  className="bg-slate-800 hover:bg-slate-750 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                >
+                  {language === 'ko' ? '닫기' : 'Close'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
