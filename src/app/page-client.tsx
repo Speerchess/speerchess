@@ -1504,12 +1504,61 @@ export default function Home() {
               </div>
             </main>
 
-            <div className="p-4 bg-white border-t border-stone-200/60">
+            <div className="p-4 bg-white border-t border-stone-200/60 space-y-2 shrink-0">
               <button 
                 onClick={startReview}
-                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer"
               >
-                첫 수부터 복기 시작 <ChevronRight size={20} />
+                첫 수부터 복기 시작 <ChevronRight size={18} />
+              </button>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <button 
+                  onClick={handleDownloadGif} 
+                  disabled={isExportingGif}
+                  className="bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer animate-none"
+                >
+                  {isExportingGif ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={14} />
+                      GIF 내보내기
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={handleCopyPgn}
+                  className="bg-white hover:bg-stone-50 text-slate-800 font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-stone-300 shadow-sm text-xs active:scale-95 cursor-pointer"
+                >
+                  <Layers size={14} />
+                  PGN 복사하기
+                </button>
+              </div>
+              <button 
+                onClick={handleShareGame}
+                disabled={isSharing}
+                className="w-full bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
+              >
+                {isSharing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    공유 링크 생성 중...
+                  </>
+                ) : sharedHashid ? (
+                  <>
+                    <CheckCircle2 size={14} className="text-green-400" />
+                    링크 복사 완료 (코드: {sharedHashid})
+                  </>
+                ) : (
+                  <>
+                    <Globe size={14} />
+                    동영상 분석 링크 공유
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1526,13 +1575,7 @@ export default function Home() {
                 <SpeerLogo className="w-5 h-5 text-slate-800" />
                 <span className="font-black text-base tracking-tight text-slate-800">speerchess</span>
               </div>
-              <button 
-                onClick={() => setIsSidebarOpen(true)}
-                className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 relative"
-                title="메뉴"
-              >
-                <Menu size={22} />
-              </button>
+              <div className="w-10"></div>
             </header>
 
             {/* Chessboard & Eval Bar Container */}
@@ -1943,25 +1986,11 @@ export default function Home() {
         {view === 'INPUT' && (
           <div className="flex-1 flex flex-col bg-white overflow-y-auto no-scrollbar relative">
             {/* Home Top Bar */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-stone-200/40 bg-stone-50/25 shrink-0">
-              <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-slate-600 cursor-pointer"
-                title="설정"
-              >
-                <Settings size={20} />
-              </button>
+            <div className="flex items-center justify-center px-4 py-3 border-b border-stone-200/40 bg-stone-50/25 shrink-0">
               <div className="flex items-center gap-1">
                 <SpeerLogo className="w-4 h-4 text-slate-800" />
                 <span className="font-extrabold text-sm tracking-tight text-slate-800">speerchess</span>
               </div>
-              <button 
-                onClick={() => setIsMenuOpen(true)}
-                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-slate-600 cursor-pointer"
-                title="메뉴"
-              >
-                <Menu size={20} />
-              </button>
             </div>
 
             {/* Header */}
