@@ -20,6 +20,8 @@ export interface GameAnalysis {
     white: Record<string, number>;
     black: Record<string, number>;
   };
+  whiteElo: number;
+  blackElo: number;
 }
 
 // Converts centipawn evaluation to a win probability (0 to 1)
@@ -150,28 +152,56 @@ export class ChessAnalyzer {
     
     const headers = chess.header();
     
-    // Parse Elo ratings from PGN headers
-    const parseElo = (val: string | null | undefined, defaultElo: number = 1500): number => {
-      if (!val) return defaultElo;
+    // Parse raw Elo ratings from PGN headers
+    const parseRawElo = (val: string | null | undefined): number | null => {
+      if (!val) return null;
       const num = parseInt(val, 10);
-      return isNaN(num) ? defaultElo : num;
+      return isNaN(num) ? null : num;
     };
-    const whiteElo = parseElo(headers.WhiteElo);
-    const blackElo = parseElo(headers.BlackElo);
+    const rawWhiteElo = parseRawElo(headers.WhiteElo);
+    const rawBlackElo = parseRawElo(headers.BlackElo);
 
     // Parse TimeControl to get T (effective time budget in seconds)
-    const parseTimeControl = (val: string | null | undefined, defaultSeconds: number = 600): number => {
+    const parseTimeControl = (val: string | null | undefined, defaultSeconds: number = 300): number => {
       if (!val || val === '-' || val === '?') return defaultSeconds;
       const parts = val.split('+');
       const base = parseInt(parts[0], 10);
       if (isNaN(base)) return defaultSeconds;
       const inc = parts[1] ? parseInt(parts[1], 10) : 0;
       const increment = isNaN(inc) ? 0 : inc;
-      // T = base + 40 * increment
-      return base + 40 * increment;
+      // T = base + 60 * increment (as requested by user)
+      return base + 60 * increment;
     };
     const rawT = parseTimeControl(headers.TimeControl);
     const T = Math.max(30, Math.min(18000, rawT));
+
+    // Determine TimeControl category (Bullet, Blitz, Rapid)
+    let timeControlCat: 'Bullet' | 'Blitz' | 'Rapid' = 'Blitz';
+    if (T < 180) {
+      timeControlCat = 'Bullet';
+    } else if (T >= 600) {
+      timeControlCat = 'Rapid';
+    }
+
+    // Convert Chess.com and Lichess ratings to Speerchess ratings
+    const site = (headers.Site || headers.Event || "").toLowerCase();
+    const isLichess = site.includes("lichess");
+
+    const convertRating = (rating: number): number => {
+      if (isLichess) {
+        if (timeControlCat === 'Bullet') return Math.round(0.82 * rating + 50);
+        if (timeControlCat === 'Blitz') return Math.round(0.85 * rating - 10);
+        return Math.round(0.80 * rating + 100); // Rapid
+      } else {
+        // Default Chess.com formulas
+        if (timeControlCat === 'Bullet') return Math.round(0.85 * rating + 200);
+        if (timeControlCat === 'Blitz') return Math.round(0.88 * rating + 150);
+        return Math.round(0.90 * rating - 50); // Rapid
+      }
+    };
+
+    let whiteElo = rawWhiteElo !== null ? convertRating(rawWhiteElo) : null;
+    let blackElo = rawBlackElo !== null ? convertRating(rawBlackElo) : null;
     
     const moveAnalyses: MoveAnalysis[] = [];
     const currentChess = new Chess();
@@ -259,6 +289,11 @@ export class ChessAnalyzer {
     const whiteACPL = totalWhiteMoves > 0 ? (whiteCpLossSum / totalWhiteMoves) : 0;
     const blackACPL = totalBlackMoves > 0 ? (blackCpLossSum / totalBlackMoves) : 0;
 
+    // Estimate Elo ratings if missing from PGN headers
+    const timeWeight = 13 + 3.5 * Math.log(T);
+    const finalWhiteElo = whiteElo !== null ? whiteElo : Math.max(100, Math.min(3200, Math.round(2900 - timeWeight * whiteACPL)));
+    const finalBlackElo = blackElo !== null ? blackElo : Math.max(100, Math.min(3200, Math.round(2900 - timeWeight * blackACPL)));
+
     // Ultimate Continuous Model rating constants
     const b = 0.8;
     const beta = 136.67;
@@ -267,8 +302,8 @@ export class ChessAnalyzer {
     const denominator = Math.max(5, beta - gamma * Math.log(T));
     const W_t = (b * T) / denominator;
 
-    const whitePerformanceRaw = (blackElo + b * T) - (whiteACPL * W_t);
-    const blackPerformanceRaw = (whiteElo + b * T) - (blackACPL * W_t);
+    const whitePerformanceRaw = (finalBlackElo + b * T) - (whiteACPL * W_t);
+    const blackPerformanceRaw = (finalWhiteElo + b * T) - (blackACPL * W_t);
 
     const whitePerformance = Math.max(600, Math.min(3200, Math.round(whitePerformanceRaw)));
     const blackPerformance = Math.max(600, Math.min(3200, Math.round(blackPerformanceRaw)));
@@ -280,7 +315,9 @@ export class ChessAnalyzer {
       whitePerformance,
       blackPerformance,
       evaluationHistory,
-      classificationTally
+      classificationTally,
+      whiteElo: finalWhiteElo,
+      blackElo: finalBlackElo
     };
   }
 
