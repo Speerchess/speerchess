@@ -333,6 +333,13 @@ export default function Home() {
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
   const [analysisDepth, setAnalysisDepth] = useState<number>(16);
 
+  // Click-to-move state
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+  const [possibleMoves, setPossibleMoves] = useState<string[]>([]);
+  
+  // Board container ref for wheel scroll navigation
+  const boardContainerRef = useRef<HTMLDivElement>(null);
+
   const [isSharing, setIsSharing] = useState(false);
   const [sharedHashid, setSharedHashid] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -964,22 +971,42 @@ export default function Home() {
 
   // Toggle tab view: handles resetting the board position when switching back to the moves list view
   const handleTabToggle = () => {
-    setReviewTab(prev => {
-      const nextTab = prev === 'MOVES' ? 'ENGINE' : 'MOVES';
-      if (nextTab === 'MOVES') {
-        setAnalysisPath([]);
-        setVariationStartMoveIndex(null);
-        setActiveVariationIndex(null);
-        if (analysis) {
-          const tempChess = new Chess();
-          for (let i = 0; i <= currentMoveIndex; i++) {
-            tempChess.move(analysis.moves[i].san);
-          }
-          setFen(tempChess.fen());
-        }
+    setReviewTab(prev => prev === 'MOVES' ? 'ENGINE' : 'MOVES');
+  };
+
+  // Click-to-move state & helpers
+  useEffect(() => {
+    setSelectedSquare(null);
+    setPossibleMoves([]);
+  }, [fen, currentMoveIndex, reviewTab]);
+
+  const handleSquareClick = (square: string) => {
+    const tempChess = new Chess(fen);
+    
+    if (selectedSquare) {
+      if (possibleMoves.includes(square)) {
+        handlePieceDrop({
+          piece: null,
+          sourceSquare: selectedSquare,
+          targetSquare: square
+        });
+        setSelectedSquare(null);
+        setPossibleMoves([]);
+        return;
       }
-      return nextTab;
-    });
+    }
+
+    const piece = tempChess.get(square as any);
+    const activeColor = tempChess.turn();
+    
+    if (piece && piece.color === activeColor) {
+      setSelectedSquare(square);
+      const moves = tempChess.moves({ square: square as any, verbose: true }) as any[];
+      setPossibleMoves(moves.map(m => m.to));
+    } else {
+      setSelectedSquare(null);
+      setPossibleMoves([]);
+    }
   };
 
   // Drag and drop piece handler during Self-Analysis mode
@@ -1090,6 +1117,31 @@ export default function Home() {
       goToMove(Math.min(analysis.moves.length - 1, currentMoveIndex + 1));
     }
   };
+
+  // PC Scroll navigation effect
+  const handlersRef = useRef({ handleNextMove, handlePrevMove });
+  useEffect(() => {
+    handlersRef.current = { handleNextMove, handlePrevMove };
+  });
+
+  useEffect(() => {
+    const container = boardContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.deltaY > 0) {
+        handlersRef.current.handleNextMove();
+      } else if (e.deltaY < 0) {
+        handlersRef.current.handlePrevMove();
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   const getCurrentEvaluation = (): number => {
     if (activeVariationIndex !== null) {
@@ -1554,12 +1606,15 @@ export default function Home() {
               </div>
 
               {/* Chessboard Container */}
-              <div className="w-full aspect-square max-w-[360px] overflow-hidden rounded-2xl shadow-md border border-stone-200/60 bg-white">
+              <div 
+                ref={boardContainerRef}
+                className="w-full aspect-square max-w-[360px] overflow-hidden rounded-2xl shadow-md border border-stone-200/60 bg-white"
+              >
                 <Chessboard 
                   options={{
                     position: fen,
                     boardOrientation: boardOrientation,
-                    allowDragging: reviewTab === 'ENGINE',
+                    allowDragging: true,
                     onPieceDrop: handlePieceDrop,
                     darkSquareStyle: { backgroundColor: themeColors.dark },
                     lightSquareStyle: { backgroundColor: themeColors.light },
@@ -1582,10 +1637,33 @@ export default function Home() {
                         }
                       }
                       
+                      // Click-to-move highlights
+                      const isSelected = selectedSquare === square;
+                      const isPossible = possibleMoves.includes(square);
+                      
+                      if (isSelected) {
+                        highlightStyle = 'bg-blue-500/30 ring-2 ring-blue-500 ring-inset';
+                      } else if (isPossible) {
+                        highlightStyle = 'bg-blue-400/20';
+                      }
+
                       return (
-                        <div className={`relative w-full h-full flex items-center justify-center ${highlightStyle}`}>
+                        <div 
+                          className={`relative w-full h-full flex items-center justify-center cursor-pointer ${highlightStyle}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSquareClick(square);
+                          }}
+                        >
                           {children}
                           {isTargetSquare && getBoardBadge(currentMove.classification)}
+                          
+                          {/* Possible moves marker dots/rings */}
+                          {isPossible && (
+                            <div className={`absolute rounded-full ${
+                              piece ? 'w-5/6 h-5/6 border-[4px] border-blue-400/60' : 'w-3 h-3 bg-blue-400/60'
+                            }`} />
+                          )}
                         </div>
                       );
                     }
