@@ -94,6 +94,21 @@ export class ChessAnalyzer {
 
   private evaluateFen(fen: string, depth: number = 10): Promise<{ evalCp: number; bestMove: string }> {
     return new Promise((resolve) => {
+      // 1. Check if the game is already over (checkmate, draw, stalemate) to avoid worker hanging
+      try {
+        const tempChess = new Chess(fen);
+        if (tempChess.isGameOver()) {
+          if (tempChess.isCheckmate()) {
+            // The active player to move is checkmated, so the evaluation is -10000 cp
+            return resolve({ evalCp: -10000, bestMove: '(none)' });
+          }
+          // Stalemate, draw, etc.
+          return resolve({ evalCp: 0, bestMove: '(none)' });
+        }
+      } catch (err) {
+        // Fallback in case of invalid FEN
+      }
+
       if (!this.worker) return resolve({ evalCp: 0, bestMove: '' });
       
       this.worker.postMessage(`position fen ${fen}`);
