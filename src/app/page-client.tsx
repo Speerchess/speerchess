@@ -421,8 +421,8 @@ export default function Home() {
               moveIndex: index,
               moveSan: move.san,
               classification: move.classification,
-              evalBefore: index > 0 ? parsed.moves[index - 1].evaluation : 0,
-              evalAfter: move.evaluation,
+              evalBefore: parsed.evaluationHistory ? (index > 0 ? parsed.evaluationHistory[index] : parsed.evaluationHistory[0]) : 0,
+              evalAfter: parsed.evaluationHistory ? parsed.evaluationHistory[index + 1] : 0,
               beforeFen: (() => {
                 const temp = new Chess();
                 for (let i = 0; i < index; i++) {
@@ -461,8 +461,8 @@ export default function Home() {
               moveIndex: index,
               moveSan: move.san,
               classification: move.classification,
-              evalBefore: index > 0 ? parsed.moves[index - 1].evaluation : 0,
-              evalAfter: move.evaluation,
+              evalBefore: parsed.evaluationHistory ? (index > 0 ? parsed.evaluationHistory[index] : parsed.evaluationHistory[0]) : 0,
+              evalAfter: parsed.evaluationHistory ? parsed.evaluationHistory[index + 1] : 0,
               beforeFen: (() => {
                 const temp = new Chess();
                 for (let i = 0; i < index; i++) {
@@ -1009,7 +1009,10 @@ export default function Home() {
       }
       return 0;
     }
-    return currentMoveIndex >= 0 ? analysis!.moves[currentMoveIndex].evaluation : 0;
+    if (currentMoveIndex >= 0 && analysis) {
+      return analysis.evaluationHistory ? analysis.evaluationHistory[currentMoveIndex + 1] : 0;
+    }
+    return (analysis && analysis.evaluationHistory) ? analysis.evaluationHistory[0] : 0;
   };
 
   const handleDownloadGif = async () => {
@@ -1047,9 +1050,10 @@ export default function Home() {
       const isWhite = index % 2 === 0;
       const moveNum = Math.floor(index / 2) + 1;
       
-      const score = move.evaluation / 100;
-      const evalStr = Math.abs(move.evaluation) >= 9000
-        ? (move.evaluation > 0 ? '#M' : '#-M')
+      const evalFromWhite = analysis.evaluationHistory ? analysis.evaluationHistory[index + 1] : 0;
+      const score = evalFromWhite / 100;
+      const evalStr = Math.abs(evalFromWhite) >= 9000
+        ? (evalFromWhite > 0 ? '#M' : '#-M')
         : score.toFixed(2);
       const comment = `{ [%eval ${evalStr}] }`;
       
