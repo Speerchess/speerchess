@@ -464,6 +464,7 @@ export default function Home() {
             const players = getPlayersFromPgn(g.pgn);
             items.push({
               game: g,
+              gameHashid: g.hashid,
               whitePlayer: players.white,
               blackPlayer: players.black,
               moveIndex: index,
@@ -504,6 +505,7 @@ export default function Home() {
             const players = getPlayersFromPgn(g.pgn);
             items.push({
               game: g,
+              gameHashid: g.hashid,
               whitePlayer: players.white,
               blackPlayer: players.black,
               moveIndex: index,
@@ -2278,7 +2280,7 @@ export default function Home() {
                   {brilliantItems.map((item, idx) => (
                     <div 
                       key={`${item.game.hashid}-${idx}`}
-                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: true })}
+                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
                       className="bg-white rounded-2xl border border-stone-200/60 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative"
                     >
                       <span className={`absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm ${
@@ -2333,7 +2335,7 @@ export default function Home() {
                   {blunderItems.map((item, idx) => (
                     <div 
                       key={`${item.game.hashid}-${idx}`}
-                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: true })}
+                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
                       className="bg-white rounded-2xl border border-stone-200/60 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative"
                     >
                       <span className="absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm">
@@ -2385,28 +2387,63 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-1.5 bg-stone-100 p-1 rounded-xl shrink-0">
-                <button 
-                  onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: false } : null)}
-                  className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${!selectedHighlight.showAfterBoard ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                >
-                  {language === 'ko' ? '수 두기 전 (Before)' : 'Before'}
-                </button>
-                <button 
-                  onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: true } : null)}
-                  className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${selectedHighlight.showAfterBoard ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                >
-                  {language === 'ko' ? '수 둔 후 (After)' : 'After'}
-                </button>
-              </div>
-
-              <div className="w-full aspect-square overflow-hidden rounded-2xl border border-stone-200/80 shadow-md">
+              <div className="w-full aspect-square overflow-hidden rounded-2xl border border-stone-200/80 shadow-md relative shrink-0">
                 <Chessboard 
                   options={{
                     position: selectedHighlight.showAfterBoard ? selectedHighlight.afterFen : selectedHighlight.beforeFen,
                     allowDragging: false
                   }}
                 />
+                
+                {/* Glowing Overlay Move Symbol Badge */}
+                {selectedHighlight.showAfterBoard && (
+                  <div className="absolute inset-0 bg-black/15 flex items-center justify-center pointer-events-none animate-fade-in z-10">
+                    <div className={`text-2xl font-black px-4.5 py-2 rounded-2xl flex items-center gap-2 border animate-bounce text-white border-white/20 shadow-2xl ${
+                      selectedHighlight.classification === 'Brilliant' 
+                        ? 'bg-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.85)]' :
+                      selectedHighlight.classification === 'Great' 
+                        ? 'bg-sky-500 shadow-[0_0_30px_rgba(14,165,233,0.85)]' :
+                        'bg-red-650 shadow-[0_0_30px_rgba(220,38,38,0.85)]' // Blunder
+                    }`}>
+                      <span>
+                        {selectedHighlight.classification === 'Brilliant' ? '!!' :
+                         selectedHighlight.classification === 'Great' ? '!' : '??'}
+                      </span>
+                      <span className="text-[11px] font-black tracking-wider uppercase">
+                        {selectedHighlight.classification === 'Brilliant' ? (language === 'ko' ? '묘수' : 'Brilliant') :
+                         selectedHighlight.classification === 'Great' ? (language === 'ko' ? '탁월' : 'Great') : 
+                         (language === 'ko' ? '블런더' : 'Blunder')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full shrink-0">
+                {!selectedHighlight.showAfterBoard ? (
+                  selectedHighlight.classification === 'Blunder' ? (
+                    <button 
+                      onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: true } : null)}
+                      className="w-full bg-red-600 hover:bg-red-550 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all shadow-md active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+                    >
+                      ❓ {language === 'ko' ? '블런더 확인하기' : 'Verify Blunder Move'}
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: true } : null)}
+                      className="w-full bg-cyan-600 hover:bg-cyan-550 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all shadow-md active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+                    >
+                      ✨ {language === 'ko' ? '탁월 확인하기' : 'Verify Brilliant Move'}
+                    </button>
+                  )
+                ) : (
+                  <button 
+                    onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: false } : null)}
+                    className="w-full bg-stone-100 hover:bg-stone-200 text-slate-800 font-extrabold py-3.5 rounded-2xl text-xs transition-all active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans shadow-inner border border-stone-200/50"
+                  >
+                    🔄 {language === 'ko' ? '다시 확인하기' : 'Replay Move'}
+                  </button>
+                )}
               </div>
 
               <div className="text-center space-y-1 font-bold">
