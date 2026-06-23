@@ -35,18 +35,37 @@ function calculateAccuracy(beforeProb: number, afterProb: number): number {
 }
 
 // freechess-style classification (simplified)
-function classifyMove(evalDiffCp: number, evalCpBefore: number, isBook: boolean, isBestMove: boolean): MoveAnalysis['classification'] {
+function classifyMove(
+  beforeProb: number,
+  afterProb: number,
+  evalDiffCp: number,
+  evalCpBefore: number,
+  isBook: boolean,
+  isBestMove: boolean
+): MoveAnalysis['classification'] {
   if (isBook) return 'Book';
   
-  if (evalDiffCp <= -300) return 'Blunder';
-  if (evalDiffCp <= -100) return 'Mistake';
-  if (evalDiffCp <= -50) return 'Inaccuracy';
+  const winProbLoss = beforeProb - afterProb;
   
+  // 1. If it is the engine's recommended best move, prevent blunder/mistake classification
+  if (isBestMove) {
+    if (evalDiffCp >= 200 && evalCpBefore < 0) return 'Brilliant';
+    if (evalDiffCp >= 100) return 'Great';
+    return 'Best';
+  }
+  
+  // 2. Win probability loss thresholds (Freechess / Chess.com style)
+  if (winProbLoss >= 0.20) return 'Blunder';
+  if (winProbLoss >= 0.10) return 'Mistake';
+  if (winProbLoss >= 0.05) return 'Inaccuracy';
+  if (winProbLoss >= 0.02) return 'Good';
+  if (winProbLoss > -0.02) return 'Excellent';
+  
+  // Fallbacks for positive eval differences
   if (evalDiffCp >= 200 && evalCpBefore < 0) return 'Brilliant';
   if (evalDiffCp >= 100) return 'Great';
-  if (isBestMove) return 'Best';
-  if (evalDiffCp > -20) return 'Excellent';
-  return 'Good';
+  
+  return 'Excellent';
 }
 
 export class ChessAnalyzer {
@@ -114,12 +133,40 @@ export class ChessAnalyzer {
     chess.loadPgn(pgn);
     const history = chess.history({ verbose: true });
     
+    const headers = chess.header();
+    
+    // Parse Elo ratings from PGN headers
+    const parseElo = (val: string | null | undefined, defaultElo: number = 1500): number => {
+      if (!val) return defaultElo;
+      const num = parseInt(val, 10);
+      return isNaN(num) ? defaultElo : num;
+    };
+    const whiteElo = parseElo(headers.WhiteElo);
+    const blackElo = parseElo(headers.BlackElo);
+
+    // Parse TimeControl to get T (effective time budget in seconds)
+    const parseTimeControl = (val: string | null | undefined, defaultSeconds: number = 600): number => {
+      if (!val || val === '-' || val === '?') return defaultSeconds;
+      const parts = val.split('+');
+      const base = parseInt(parts[0], 10);
+      if (isNaN(base)) return defaultSeconds;
+      const inc = parts[1] ? parseInt(parts[1], 10) : 0;
+      const increment = isNaN(inc) ? 0 : inc;
+      // T = base + 40 * increment
+      return base + 40 * increment;
+    };
+    const rawT = parseTimeControl(headers.TimeControl);
+    const T = Math.max(30, Math.min(18000, rawT));
+    
     const moveAnalyses: MoveAnalysis[] = [];
     const currentChess = new Chess();
     
     let prevEval = 0; // Starting position is roughly 0
     let whiteAccuracySum = 0;
     let blackAccuracySum = 0;
+    let whiteCpLossSum = 0;
+    let blackCpLossSum = 0;
+    
     const evaluationHistory: number[] = [0];
     const tallyTemplate = () => ({
       'Brilliant': 0, 'Great': 0, 'Best': 0, 'Excellent': 0, 'Good': 0,
@@ -143,15 +190,7 @@ export class ChessAnalyzer {
       
       currentChess.move(move);
       
-      // Stockfish always evaluates from the perspective of the player to move
-      // If it's black's turn now (after white moved), the eval is black's perspective
-      // Let's normalize it to the perspective of the player who just moved
       const { evalCp, bestMove } = await this.evaluateFen(currentChess.fen(), depth);
-      
-      // We want to calculate the difference from the perspective of the player who just moved
-      // Before move: prevEval was from perspective of player who moved.
-      // After move: evalCp is from perspective of the OTHER player.
-      // So the new eval from the perspective of the player who moved is -evalCp
       const currentEvalForPlayer = -evalCp;
       
       const evalDiffCp = currentEvalForPlayer - prevEval;
@@ -163,8 +202,13 @@ export class ChessAnalyzer {
       if (isWhiteTurn) whiteAccuracySum += accuracy;
       else blackAccuracySum += accuracy;
 
-      // Classify
-      const classification = classifyMove(evalDiffCp, prevEval, i < 10, isBestMove);
+      // Track Centipawn Loss (for ACPL calculation)
+      const cpLoss = Math.max(0, -evalDiffCp);
+      if (isWhiteTurn) whiteCpLossSum += cpLoss;
+      else blackCpLossSum += cpLoss;
+
+      // Classify using win probability difference
+      const classification = classifyMove(beforeProb, afterProb, evalDiffCp, prevEval, i < 10, isBestMove);
 
       if (isWhiteTurn) {
         classificationTally.white[classification]++;
@@ -185,7 +229,7 @@ export class ChessAnalyzer {
         accuracy
       });
 
-      prevEval = evalCp; // Prepare for next iteration (perspective of other player)
+      prevEval = evalCp;
       currentBestMove = bestMove;
       
       if (onProgress) onProgress(((i + 1) / history.length) * 100);
@@ -197,12 +241,29 @@ export class ChessAnalyzer {
     const whiteAccuracy = totalWhiteMoves > 0 ? Math.round(whiteAccuracySum / totalWhiteMoves * 10) / 10 : 100;
     const blackAccuracy = totalBlackMoves > 0 ? Math.round(blackAccuracySum / totalBlackMoves * 10) / 10 : 100;
 
+    const whiteACPL = totalWhiteMoves > 0 ? (whiteCpLossSum / totalWhiteMoves) : 0;
+    const blackACPL = totalBlackMoves > 0 ? (blackCpLossSum / totalBlackMoves) : 0;
+
+    // Ultimate Continuous Model rating constants
+    const b = 0.8;
+    const beta = 136.67;
+    const gamma = 16.67;
+
+    const denominator = Math.max(5, beta - gamma * Math.log(T));
+    const W_t = (b * T) / denominator;
+
+    const whitePerformanceRaw = (blackElo + b * T) - (whiteACPL * W_t);
+    const blackPerformanceRaw = (whiteElo + b * T) - (blackACPL * W_t);
+
+    const whitePerformance = Math.max(600, Math.min(3200, Math.round(whitePerformanceRaw)));
+    const blackPerformance = Math.max(600, Math.min(3200, Math.round(blackPerformanceRaw)));
+
     return {
       moves: moveAnalyses,
       whiteAccuracy,
       blackAccuracy,
-      whitePerformance: Math.round(1000 + (whiteAccuracy - 50) * 35),
-      blackPerformance: Math.round(1000 + (blackAccuracy - 50) * 35),
+      whitePerformance,
+      blackPerformance,
       evaluationHistory,
       classificationTally
     };
