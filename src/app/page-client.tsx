@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X } from 'lucide-react';
 import { ChessAnalyzer, GameAnalysis, MoveAnalysis } from '../lib/analyzer';
 import { generateGifClient } from '../lib/gifGeneratorClient';
@@ -409,6 +409,8 @@ export default function Home() {
     classification: string;
     moveFrom: string;
     moveTo: string;
+    opponentLastMoveFrom?: string | null;
+    opponentLastMoveTo?: string | null;
     evalBefore: number;
     evalAfter: number;
     beforeFen: string;
@@ -429,6 +431,10 @@ export default function Home() {
   const [chessleBoardOrientation, setChessleBoardOrientation] = useState<'white' | 'black'>('white');
   const [showEndPositionHint, setShowEndPositionHint] = useState<boolean>(false);
   const [showMove7Hint, setShowMove7Hint] = useState<boolean>(false);
+  
+  // Chessle click-to-move states
+  const [chessleSelectedSquare, setChessleSelectedSquare] = useState<string | null>(null);
+  const [chesslePossibleMoves, setChesslePossibleMoves] = useState<string[]>([]);
 
   // Memoized move pairs for the appreciation mode list to avoid calculating on every single board render
   const movePairs = useMemo(() => {
@@ -441,6 +447,7 @@ export default function Home() {
   }, [analysis]);
 
   const params = useParams();
+  const pathname = usePathname();
   const hashid = params?.hashid as string | undefined;
 
   useEffect(() => {
@@ -468,9 +475,18 @@ export default function Home() {
         // Set shared hashid state
         setSharedHashid(hashid);
         
-        // Go straight to review analysis mode
-        setView('REVIEW');
-        setReviewTab('ENGINE');
+        // Go to Chessle view directly if URL matches Chessle path
+        if (pathname?.startsWith('/chessle/')) {
+          startChessleGame({
+            hashid: hashid,
+            analysis_json: data.analysis_json,
+            pgn: data.pgn
+          });
+        } else {
+          // Go straight to review analysis mode
+          setView('REVIEW');
+          setReviewTab('ENGINE');
+        }
       } catch (e: any) {
         alert(e.message || '게임 로딩 중 오류가 발생했습니다.');
         setView('INPUT');
@@ -478,7 +494,7 @@ export default function Home() {
     };
 
     loadSharedGame();
-  }, [hashid]);
+  }, [hashid, pathname]);
 
   // Load games from D1/API on startup
   const fetchGames = async () => {
@@ -542,8 +558,9 @@ export default function Home() {
       try {
         const parsed = JSON.parse(g.analysis_json);
         parsed.moves.forEach((move: any, index: number) => {
-          if (move.classification === 'Brilliant' || move.classification === 'Great') {
+          if (move.classification === 'Brilliant') {
             const players = getPlayersFromPgn(g.pgn);
+            const opponentLastMove = index > 0 ? parsed.moves[index - 1] : null;
             items.push({
               game: g,
               gameHashid: g.hashid,
@@ -554,6 +571,8 @@ export default function Home() {
               classification: move.classification,
               moveFrom: move.from,
               moveTo: move.to,
+              opponentLastMoveFrom: opponentLastMove ? opponentLastMove.from : null,
+              opponentLastMoveTo: opponentLastMove ? opponentLastMove.to : null,
               evalBefore: parsed.evaluationHistory ? (index > 0 ? parsed.evaluationHistory[index] : parsed.evaluationHistory[0]) : 0,
               evalAfter: parsed.evaluationHistory ? parsed.evaluationHistory[index + 1] : 0,
               beforeFen: (() => {
@@ -610,6 +629,7 @@ export default function Home() {
         [worstWhiteBlunder, worstBlackBlunder].forEach((b) => {
           if (b) {
             const { move, index } = b;
+            const opponentLastMove = index > 0 ? parsed.moves[index - 1] : null;
             items.push({
               game: g,
               gameHashid: g.hashid,
@@ -620,6 +640,8 @@ export default function Home() {
               classification: move.classification,
               moveFrom: move.from,
               moveTo: move.to,
+              opponentLastMoveFrom: opponentLastMove ? opponentLastMove.from : null,
+              opponentLastMoveTo: opponentLastMove ? opponentLastMove.to : null,
               evalBefore: parsed.evaluationHistory ? (index > 0 ? parsed.evaluationHistory[index] : parsed.evaluationHistory[0]) : 0,
               evalAfter: parsed.evaluationHistory ? parsed.evaluationHistory[index + 1] : 0,
               beforeFen: (() => {
@@ -787,6 +809,44 @@ export default function Home() {
       return false;
     }
     return false;
+  };
+
+  // Reset Chessle click-to-move states
+  useEffect(() => {
+    setChessleSelectedSquare(null);
+    setChesslePossibleMoves([]);
+  }, [chessleFen, view]);
+
+  const handleChessleSquareClick = (square: string) => {
+    const allowMoves = chessleMoves.length < 10 && !chessleSolved && chessleAttemptCount < 6;
+    if (!allowMoves) return;
+
+    const tempChess = new Chess(chessleFen);
+    
+    if (chessleSelectedSquare) {
+      if (chesslePossibleMoves.includes(square)) {
+        handleChesslePieceDrop({
+          piece: null,
+          sourceSquare: chessleSelectedSquare,
+          targetSquare: square
+        });
+        setChessleSelectedSquare(null);
+        setChesslePossibleMoves([]);
+        return;
+      }
+    }
+
+    const piece = tempChess.get(square as any);
+    const activeColor = tempChess.turn();
+    
+    if (piece && piece.color === activeColor) {
+      setChessleSelectedSquare(square);
+      const moves = tempChess.moves({ square: square as any, verbose: true }) as any[];
+      setChesslePossibleMoves(moves.map(m => m.to));
+    } else {
+      setChessleSelectedSquare(null);
+      setChesslePossibleMoves([]);
+    }
   };
 
   // Chessle undo move
@@ -976,6 +1036,7 @@ export default function Home() {
     setView('LOADING');
     setProgress(0);
     setAnalysis(null);
+    setSharedHashid(null);
     setQuote(quotes[Math.floor(Math.random() * quotes.length)]);
 
     try {
@@ -1006,6 +1067,12 @@ export default function Home() {
       setAnalysisPath([]);
       setVariationStartMoveIndex(null);
       setActiveVariationIndex(null);
+
+      // Auto save game if it exceeds 7 moves (14 plies)
+      if (gameAnalysis.moves.length > 14) {
+        autoSaveGame(pgnToUse, gameAnalysis);
+      }
+
       setView('SUMMARY');
     } catch (err: any) {
       console.error(err);
@@ -1361,8 +1428,48 @@ export default function Home() {
     }
   };
 
+  const autoSaveGame = async (pgnText: string, gameAnalysis: any) => {
+    try {
+      const movesSequence = gameAnalysis.moves.map((m: any) => m.san).join(' ');
+      const analysisJson = JSON.stringify(gameAnalysis);
+
+      const res = await fetch('/api/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pgn: pgnText,
+          analysisJson,
+          movesSequence
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.hashid) {
+          setSharedHashid(data.hashid);
+          fetchGames();
+        }
+      }
+    } catch (e) {
+      console.error("Auto-save failed:", e);
+    }
+  };
+
   const handleShareGame = async () => {
     if (!analysis) return;
+
+    if (analysis.moves.length <= 14) {
+      alert("공유 링크는 7수가 넘는 경기만 생성할 수 있습니다.");
+      return;
+    }
+
+    if (sharedHashid) {
+      const link = `${window.location.origin}/${sharedHashid}`;
+      navigator.clipboard.writeText(link);
+      alert(`공유 링크가 클립보드에 복사되었습니다!\n코드: ${sharedHashid}`);
+      return;
+    }
+
     setIsSharing(true);
     try {
       const movesSequence = analysis.moves.map(m => m.san).join(' ');
@@ -2667,6 +2774,13 @@ export default function Home() {
                             highlightStyle = 'bg-yellow-500/20'; // Default move highlight
                           }
                         }
+                      } else {
+                        // Highlight opponent's last move when showAfterBoard is false
+                        const isOpponentTarget = selectedHighlight.opponentLastMoveTo === square;
+                        const isOpponentSource = selectedHighlight.opponentLastMoveFrom === square;
+                        if (isOpponentTarget || isOpponentSource) {
+                          highlightStyle = 'bg-blue-500/25';
+                        }
                       }
                       
                       return (
@@ -2713,16 +2827,6 @@ export default function Home() {
                 </div>
                 <div className="text-base text-slate-850 font-black">
                   {Math.floor(selectedHighlight.moveIndex / 2) + 1}. {selectedHighlight.moveIndex % 2 === 0 ? '백' : '흑'} {selectedHighlight.moveSan}
-                </div>
-                <div className="text-xs text-slate-600 font-bold">
-                  {language === 'ko' ? '평가치' : 'Evaluation'}: {' '}
-                  <span className="font-extrabold">
-                    {selectedHighlight.evalBefore > 0 ? `+${(selectedHighlight.evalBefore/100).toFixed(1)}` : (selectedHighlight.evalBefore/100).toFixed(1)}
-                  </span>
-                  {' → '}
-                  <span className="font-extrabold text-slate-850">
-                    {selectedHighlight.evalAfter > 0 ? `+${(selectedHighlight.evalAfter/100).toFixed(1)}` : (selectedHighlight.evalAfter/100).toFixed(1)}
-                  </span>
                 </div>
               </div>
 
@@ -2788,7 +2892,34 @@ export default function Home() {
                     position: chessleFen,
                     boardOrientation: chessleBoardOrientation,
                     onPieceDrop: handleChesslePieceDrop,
-                    allowDragging: chessleMoves.length < 10 && !chessleSolved && chessleAttemptCount < 6
+                    onSquareClick: ({ piece, square }) => handleChessleSquareClick(square),
+                    allowDragging: chessleMoves.length < 10 && !chessleSolved && chessleAttemptCount < 6,
+                    darkSquareStyle: { backgroundColor: themeColors.dark },
+                    lightSquareStyle: { backgroundColor: themeColors.light },
+                    squareRenderer: ({ piece, square, children }) => {
+                      const isSelected = chessleSelectedSquare === square;
+                      const isPossible = chesslePossibleMoves.includes(square);
+                      
+                      let highlightStyle = '';
+                      if (isSelected) {
+                        highlightStyle = 'bg-blue-500/30 ring-2 ring-blue-500 ring-inset';
+                      } else if (isPossible) {
+                        highlightStyle = 'bg-blue-400/20';
+                      }
+                      
+                      return (
+                        <div 
+                          className={`relative w-full h-full flex items-center justify-center cursor-pointer ${highlightStyle}`}
+                        >
+                          {children}
+                          {isPossible && (
+                            <div className={`absolute rounded-full ${
+                              piece ? 'w-5/6 h-5/6 border-[4px] border-blue-400/60' : 'w-3 h-3 bg-blue-400/60'
+                            }`} />
+                          )}
+                        </div>
+                      );
+                    }
                   }}
                 />
               </div>
@@ -2977,7 +3108,7 @@ export default function Home() {
                       }}
                       className="bg-stone-100 hover:bg-stone-200 text-slate-800 font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer shadow-sm"
                     >
-                      🔄 {language === 'ko' ? '다시 플레이' : 'Play Again'}
+                      🔄 {language === 'ko' ? '다른 체슬 풀기' : 'Solve Another Chessle'}
                     </button>
                     <button 
                       onClick={() => {
@@ -2987,7 +3118,7 @@ export default function Home() {
                       }}
                       className="bg-slate-800 hover:bg-slate-750 text-white font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer shadow-md"
                     >
-                      🔍 {language === 'ko' ? '복기하러 가기' : 'Review Game'}
+                      🔍 {language === 'ko' ? '전체 경기 보러가기' : 'View Full Game'}
                     </button>
                   </div>
                 </div>
