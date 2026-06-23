@@ -1115,6 +1115,7 @@ export default function Home() {
     const whiteElo = (analysis && analysis.whiteElo) ? String(analysis.whiteElo) : getHeaderFromPgn(pgn, 'WhiteElo');
     const blackElo = (analysis && analysis.blackElo) ? String(analysis.blackElo) : getHeaderFromPgn(pgn, 'BlackElo');
     const rawTimeControl = getHeaderFromPgn(pgn, 'TimeControl');
+    const result = getHeaderFromPgn(pgn, 'Result') || '*';
     
     let timeControl = '';
     if (rawTimeControl && rawTimeControl !== '-' && rawTimeControl !== '?') {
@@ -1132,7 +1133,8 @@ export default function Home() {
     pgnResult += `[Black "${black || ''}"]\n`;
     pgnResult += `[WhiteElo "${whiteElo || ''}"]\n`;
     pgnResult += `[BlackElo "${blackElo || ''}"]\n`;
-    pgnResult += `[TimeControl "${timeControl || ''}"]\n\n`;
+    pgnResult += `[TimeControl "${timeControl || ''}"]\n`;
+    pgnResult += `[Result "${result}"]\n\n`;
 
     analysis.moves.forEach((move, index) => {
       const isWhite = index % 2 === 0;
@@ -1178,6 +1180,7 @@ export default function Home() {
       }
     });
     
+    pgnResult += ` ${result}`;
     return pgnResult.trim();
   };
 
