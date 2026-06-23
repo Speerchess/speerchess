@@ -109,7 +109,7 @@ export async function generateGifClient(
     gif.writeFrame(index, canvas.width, canvas.height, { palette, delay });
   };
 
-  const drawBoard = (currentChess: Chess, moveAnalysis?: MoveAnalysis, lastMove?: {from: string, to: string}) => {
+  const drawBoard = (currentChess: Chess, moveAnalysis?: MoveAnalysis, lastMove?: {from: string, to: string}, drawWatermark: boolean = false) => {
     const isFlipped = options?.orientation === 'black';
 
     // Draw squares
@@ -143,11 +143,13 @@ export async function generateGifClient(
     }
 
     // Draw watermark
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
-    ctx.font = 'bold 32px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('speerchess.xyz', BOARD_SIZE / 2, BOARD_SIZE / 2);
+    if (drawWatermark) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.font = 'bold 32px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('speerchess.xyz', BOARD_SIZE / 2, BOARD_SIZE / 2);
+    }
 
     // Draw pieces
     const board = currentChess.board();
@@ -201,7 +203,7 @@ export async function generateGifClient(
   };
 
   // Draw initial position
-  drawBoard(replayChess);
+  drawBoard(replayChess, undefined, undefined, true);
   addFrameToGif(1000);
 
   for (let i = 0; i < history.length; i++) {
@@ -233,7 +235,7 @@ export async function generateGifClient(
     const logoY = (BOARD_SIZE - logoSize) / 2;
     ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
   }
-  addFrameToGif(3000); // Hold outro logo for 3 seconds
+  addFrameToGif(2000); // Hold outro logo for 2 seconds
   
   gif.finish();
   const buffer = gif.bytes();
