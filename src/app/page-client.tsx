@@ -1110,18 +1110,24 @@ export default function Home() {
       return match ? match[1] : '';
     };
 
-    const event = getHeaderFromPgn(pgn, 'Event') || 'Speerchess Analysis';
-    const site = getHeaderFromPgn(pgn, 'Site') || 'speerchess.com';
-    const date = getHeaderFromPgn(pgn, 'Date') || new Date().toISOString().split('T')[0].replace(/-/g, '.');
     const white = getHeaderFromPgn(pgn, 'White');
     const black = getHeaderFromPgn(pgn, 'Black');
     const whiteElo = (analysis && analysis.whiteElo) ? String(analysis.whiteElo) : getHeaderFromPgn(pgn, 'WhiteElo');
     const blackElo = (analysis && analysis.blackElo) ? String(analysis.blackElo) : getHeaderFromPgn(pgn, 'BlackElo');
-    const timeControl = getHeaderFromPgn(pgn, 'TimeControl');
+    const rawTimeControl = getHeaderFromPgn(pgn, 'TimeControl');
+    
+    let timeControl = '';
+    if (rawTimeControl && rawTimeControl !== '-' && rawTimeControl !== '?') {
+      const parts = rawTimeControl.split('+');
+      const base = parseInt(parts[0], 10);
+      if (!isNaN(base)) {
+        const inc = parts[1] ? parseInt(parts[1], 10) : 0;
+        const increment = isNaN(inc) ? 0 : inc;
+        timeControl = String(base + 60 * increment);
+      }
+    }
 
-    pgnResult += `[Event "${event}"]\n`;
-    pgnResult += `[Site "${site}"]\n`;
-    pgnResult += `[Date "${date}"]\n`;
+    pgnResult += `[Event "Speerchess Analysis"]\n`;
     pgnResult += `[White "${white || ''}"]\n`;
     pgnResult += `[Black "${black || ''}"]\n`;
     pgnResult += `[WhiteElo "${whiteElo || ''}"]\n`;
