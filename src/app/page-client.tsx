@@ -329,6 +329,8 @@ export default function Home() {
     moveIndex: number;
     moveSan: string;
     classification: string;
+    moveFrom: string;
+    moveTo: string;
     evalBefore: number;
     evalAfter: number;
     beforeFen: string;
@@ -371,7 +373,7 @@ export default function Home() {
       setProgress(0);
       setQuote(quotes[Math.floor(Math.random() * quotes.length)]);
       try {
-        const res = await fetch(`/api/games?hashid=${hashid}`);
+        const res = await fetch(`/api/games?hashid=${hashid}&t=${Date.now()}`, { cache: 'no-store' });
         if (!res.ok) {
           throw new Error('공유된 게임 데이터를 불러오지 못했습니다.');
         }
@@ -400,21 +402,22 @@ export default function Home() {
   }, [hashid]);
 
   // Load games from D1/API on startup
-  useEffect(() => {
-    const fetchGames = async () => {
-      setLoadingDbGames(true);
-      try {
-        const res = await fetch('/api/games');
-        if (res.ok) {
-          const data = await res.json();
-          setDbGames(data);
-        }
-      } catch (e) {
-        console.error('Error fetching games:', e);
-      } finally {
-        setLoadingDbGames(false);
+  const fetchGames = async () => {
+    setLoadingDbGames(true);
+    try {
+      const res = await fetch('/api/games?t=' + Date.now(), { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        setDbGames(data);
       }
-    };
+    } catch (e) {
+      console.error('Error fetching games:', e);
+    } finally {
+      setLoadingDbGames(false);
+    }
+  };
+
+  useEffect(() => {
     fetchGames();
   }, [view]);
 
@@ -470,6 +473,8 @@ export default function Home() {
               moveIndex: index,
               moveSan: move.san,
               classification: move.classification,
+              moveFrom: move.from,
+              moveTo: move.to,
               evalBefore: parsed.evaluationHistory ? (index > 0 ? parsed.evaluationHistory[index] : parsed.evaluationHistory[0]) : 0,
               evalAfter: parsed.evaluationHistory ? parsed.evaluationHistory[index + 1] : 0,
               beforeFen: (() => {
@@ -511,6 +516,8 @@ export default function Home() {
               moveIndex: index,
               moveSan: move.san,
               classification: move.classification,
+              moveFrom: move.from,
+              moveTo: move.to,
               evalBefore: parsed.evaluationHistory ? (index > 0 ? parsed.evaluationHistory[index] : parsed.evaluationHistory[0]) : 0,
               evalAfter: parsed.evaluationHistory ? parsed.evaluationHistory[index + 1] : 0,
               beforeFen: (() => {
@@ -569,7 +576,7 @@ export default function Home() {
     }
 
     try {
-      const res = await fetch(`/api/games?hashid=${targetHashid}`);
+      const res = await fetch(`/api/games?hashid=${targetHashid}&t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         const gameAnalysis = JSON.parse(data.analysis_json);
@@ -1183,6 +1190,7 @@ export default function Home() {
         const link = `${window.location.origin}/${data.hashid}`;
         navigator.clipboard.writeText(link);
         alert(`공유 링크가 클립보드에 복사되었습니다!\n코드: ${data.hashid}`);
+        fetchGames();
       } else {
         throw new Error(data.error || '올바르지 않은 응답');
       }
@@ -1475,9 +1483,24 @@ export default function Home() {
                     squareRenderer: ({ piece, square, children }) => {
                       const currentMove = currentMoveIndex >= 0 ? analysis.moves[currentMoveIndex] : null;
                       const isTargetSquare = currentMove && currentMove.to === square;
+                      const isSourceSquare = currentMove && currentMove.from === square;
+                      
+                      let highlightStyle = '';
+                      if (currentMove) {
+                        const isBrilliantOrGreat = currentMove.classification === 'Brilliant' || currentMove.classification === 'Great';
+                        if (isTargetSquare || isSourceSquare) {
+                          if (isBrilliantOrGreat) {
+                            highlightStyle = 'bg-emerald-500/35'; // Greenish highlight
+                          } else if (currentMove.classification === 'Inaccuracy' || currentMove.classification === 'Mistake' || currentMove.classification === 'Blunder') {
+                            highlightStyle = 'bg-yellow-500/35'; // Yellowish highlight
+                          } else {
+                            highlightStyle = 'bg-yellow-500/20'; // Default move highlight
+                          }
+                        }
+                      }
                       
                       return (
-                        <div className="relative w-full h-full flex items-center justify-center">
+                        <div className={`relative w-full h-full flex items-center justify-center ${highlightStyle}`}>
                           {children}
                           {isTargetSquare && getBoardBadge(currentMove.classification)}
                         </div>
@@ -2391,32 +2414,36 @@ export default function Home() {
                 <Chessboard 
                   options={{
                     position: selectedHighlight.showAfterBoard ? selectedHighlight.afterFen : selectedHighlight.beforeFen,
-                    allowDragging: false
+                    allowDragging: false,
+                    darkSquareStyle: { backgroundColor: themeColors.dark },
+                    lightSquareStyle: { backgroundColor: themeColors.light },
+                    squareRenderer: ({ piece, square, children }) => {
+                      const isTargetSquare = selectedHighlight.showAfterBoard && selectedHighlight.moveTo === square;
+                      const isSourceSquare = selectedHighlight.showAfterBoard && selectedHighlight.moveFrom === square;
+                      
+                      let highlightStyle = '';
+                      if (selectedHighlight.showAfterBoard) {
+                        const isBrilliantOrGreat = selectedHighlight.classification === 'Brilliant' || selectedHighlight.classification === 'Great';
+                        if (isTargetSquare || isSourceSquare) {
+                          if (isBrilliantOrGreat) {
+                            highlightStyle = 'bg-emerald-500/35'; // Greenish highlight for brilliant/great
+                          } else if (selectedHighlight.classification === 'Inaccuracy' || selectedHighlight.classification === 'Mistake' || selectedHighlight.classification === 'Blunder') {
+                            highlightStyle = 'bg-yellow-500/35'; // Yellowish highlight for blunder/mistake/inaccuracy
+                          } else {
+                            highlightStyle = 'bg-yellow-500/20'; // Default move highlight
+                          }
+                        }
+                      }
+                      
+                      return (
+                        <div className={`relative w-full h-full flex items-center justify-center ${highlightStyle}`}>
+                          {children}
+                          {isTargetSquare && getBoardBadge(selectedHighlight.classification)}
+                        </div>
+                      );
+                    }
                   }}
                 />
-                
-                {/* Glowing Overlay Move Symbol Badge */}
-                {selectedHighlight.showAfterBoard && (
-                  <div className="absolute inset-0 bg-black/15 flex items-center justify-center pointer-events-none animate-fade-in z-10">
-                    <div className={`text-2xl font-black px-4.5 py-2 rounded-2xl flex items-center gap-2 border animate-bounce text-white border-white/20 shadow-2xl ${
-                      selectedHighlight.classification === 'Brilliant' 
-                        ? 'bg-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.85)]' :
-                      selectedHighlight.classification === 'Great' 
-                        ? 'bg-sky-500 shadow-[0_0_30px_rgba(14,165,233,0.85)]' :
-                        'bg-red-650 shadow-[0_0_30px_rgba(220,38,38,0.85)]' // Blunder
-                    }`}>
-                      <span>
-                        {selectedHighlight.classification === 'Brilliant' ? '!!' :
-                         selectedHighlight.classification === 'Great' ? '!' : '??'}
-                      </span>
-                      <span className="text-[11px] font-black tracking-wider uppercase">
-                        {selectedHighlight.classification === 'Brilliant' ? (language === 'ko' ? '묘수' : 'Brilliant') :
-                         selectedHighlight.classification === 'Great' ? (language === 'ko' ? '탁월' : 'Great') : 
-                         (language === 'ko' ? '블런더' : 'Blunder')}
-                      </span>
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="w-full shrink-0">
