@@ -57,6 +57,24 @@ async function loadPieces() {
   return images;
 }
 
+let loadedLogoImage: HTMLImageElement | null = null;
+
+async function loadLogo(): Promise<HTMLImageElement | null> {
+  if (loadedLogoImage) return loadedLogoImage;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = '/logo.png';
+    img.onload = () => {
+      loadedLogoImage = img;
+      resolve(img);
+    };
+    img.onerror = () => {
+      console.warn("Could not load logo image");
+      resolve(null);
+    };
+  });
+}
+
 export async function generateGifClient(
   pgn: string,
   analysis: GameAnalysis,
@@ -68,6 +86,7 @@ export async function generateGifClient(
   }
 ): Promise<Blob> {
   const images = await loadPieces();
+  const logoImage = await loadLogo();
   const chess = new Chess();
   chess.loadPgn(pgn);
   const history = chess.history({ verbose: true });
@@ -122,6 +141,13 @@ export async function generateGifClient(
       ctx.fillRect(canvasFromFile * SQUARE_SIZE, canvasFromR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
       ctx.fillRect(canvasToFile * SQUARE_SIZE, canvasToR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
     }
+
+    // Draw watermark
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('speerchess.xyz', BOARD_SIZE / 2, BOARD_SIZE / 2);
 
     // Draw pieces
     const board = currentChess.board();
@@ -195,7 +221,19 @@ export async function generateGifClient(
     if (options?.onProgress) options.onProgress(((i + 1) / history.length) * 100);
   }
 
-  addFrameToGif(3000); // end frame hold
+  addFrameToGif(1500); // Hold final position for 1.5 seconds
+  
+  // Draw outro logo frame
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+  
+  if (logoImage) {
+    const logoSize = 360;
+    const logoX = (BOARD_SIZE - logoSize) / 2;
+    const logoY = (BOARD_SIZE - logoSize) / 2;
+    ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
+  }
+  addFrameToGif(3000); // Hold outro logo for 3 seconds
   
   gif.finish();
   const buffer = gif.bytes();
