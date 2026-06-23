@@ -1115,8 +1115,8 @@ export default function Home() {
     const date = getHeaderFromPgn(pgn, 'Date') || new Date().toISOString().split('T')[0].replace(/-/g, '.');
     const white = getHeaderFromPgn(pgn, 'White');
     const black = getHeaderFromPgn(pgn, 'Black');
-    const whiteElo = getHeaderFromPgn(pgn, 'WhiteElo');
-    const blackElo = getHeaderFromPgn(pgn, 'BlackElo');
+    const whiteElo = (analysis && analysis.whiteElo) ? String(analysis.whiteElo) : getHeaderFromPgn(pgn, 'WhiteElo');
+    const blackElo = (analysis && analysis.blackElo) ? String(analysis.blackElo) : getHeaderFromPgn(pgn, 'BlackElo');
     const timeControl = getHeaderFromPgn(pgn, 'TimeControl');
 
     pgnResult += `[Event "${event}"]\n`;
