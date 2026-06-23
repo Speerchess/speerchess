@@ -584,9 +584,32 @@ export default function Home() {
     for (const g of allGames) {
       try {
         const parsed = JSON.parse(g.analysis_json);
+        if (!parsed.moves) continue;
+
+        let worstWhiteBlunder: any = null;
+        let worstBlackBlunder: any = null;
+
         parsed.moves.forEach((move: any, index: number) => {
-          if (move.classification === 'Blunder') {
-            const players = getPlayersFromPgn(g.pgn);
+          const moveNumber = Math.floor(index / 2) + 1;
+          if (move.classification === 'Blunder' && moveNumber >= 15) {
+            const isWhite = index % 2 === 0;
+            if (isWhite) {
+              if (!worstWhiteBlunder || move.accuracy < worstWhiteBlunder.move.accuracy) {
+                worstWhiteBlunder = { move, index };
+              }
+            } else {
+              if (!worstBlackBlunder || move.accuracy < worstBlackBlunder.move.accuracy) {
+                worstBlackBlunder = { move, index };
+              }
+            }
+          }
+        });
+
+        const players = getPlayersFromPgn(g.pgn);
+
+        [worstWhiteBlunder, worstBlackBlunder].forEach((b) => {
+          if (b) {
+            const { move, index } = b;
             items.push({
               game: g,
               gameHashid: g.hashid,
