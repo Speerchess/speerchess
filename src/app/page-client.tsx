@@ -334,6 +334,47 @@ export default function Home() {
   const [analysisDepth, setAnalysisDepth] = useState<number>(16);
 
   // Click-to-move state
+  // Memoized source/target squares of the currently viewed move (handles both main line and variations)
+  const activeHighlightedSquares = useMemo<{ from: string | null; to: string | null }>(() => {
+    if (!analysis) return { from: null, to: null };
+    
+    // Case 1: We are in a variation
+    if (activeVariationIndex !== null && variationStartMoveIndex !== null && analysisPath.length > 0) {
+      try {
+        const tempChess = new Chess();
+        // Play main line up to variationStartMoveIndex
+        for (let i = 0; i <= variationStartMoveIndex; i++) {
+          tempChess.move(analysis.moves[i].san);
+        }
+        // Play variation moves up to activeVariationIndex - 1
+        for (let i = 0; i < activeVariationIndex; i++) {
+          if (analysisPath[i]) {
+            tempChess.move(analysisPath[i]);
+          }
+        }
+        // The move at activeVariationIndex is the last move played
+        const lastMoveSan = analysisPath[activeVariationIndex];
+        if (lastMoveSan) {
+          const moveObj = tempChess.move(lastMoveSan);
+          if (moveObj) {
+            return { from: moveObj.from, to: moveObj.to };
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing variation move highlight:", e);
+      }
+      return { from: null, to: null };
+    }
+    
+    // Case 2: Main line
+    if (currentMoveIndex >= 0 && currentMoveIndex < analysis.moves.length) {
+      const currentMove = analysis.moves[currentMoveIndex];
+      return { from: currentMove.from, to: currentMove.to };
+    }
+    
+    return { from: null, to: null };
+  }, [analysis, currentMoveIndex, activeVariationIndex, variationStartMoveIndex, analysisPath]);
+
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [possibleMoves, setPossibleMoves] = useState<string[]>([]);
   
@@ -1141,7 +1182,7 @@ export default function Home() {
     return () => {
       container.removeEventListener('wheel', handleWheel);
     };
-  }, []);
+  }, [view, analysis]);
 
   const getCurrentEvaluation = (): number => {
     if (activeVariationIndex !== null) {
@@ -1616,23 +1657,31 @@ export default function Home() {
                     boardOrientation: boardOrientation,
                     allowDragging: true,
                     onPieceDrop: handlePieceDrop,
+                    onSquareClick: ({ piece, square }) => handleSquareClick(square),
                     darkSquareStyle: { backgroundColor: themeColors.dark },
                     lightSquareStyle: { backgroundColor: themeColors.light },
                     squareRenderer: ({ piece, square, children }) => {
-                      const currentMove = currentMoveIndex >= 0 ? analysis.moves[currentMoveIndex] : null;
-                      const isTargetSquare = currentMove && currentMove.to === square;
-                      const isSourceSquare = currentMove && currentMove.from === square;
+                      const { from: highlightedFrom, to: highlightedTo } = activeHighlightedSquares;
+                      const isTargetSquare = highlightedTo === square;
+                      const isSourceSquare = highlightedFrom === square;
                       
                       let highlightStyle = '';
-                      if (currentMove) {
-                        const isBrilliantOrGreat = currentMove.classification === 'Brilliant' || currentMove.classification === 'Great';
-                        if (isTargetSquare || isSourceSquare) {
-                          if (isBrilliantOrGreat) {
-                            highlightStyle = 'bg-emerald-500/35'; // Greenish highlight
-                          } else if (currentMove.classification === 'Inaccuracy' || currentMove.classification === 'Mistake' || currentMove.classification === 'Blunder') {
-                            highlightStyle = 'bg-yellow-500/35'; // Yellowish highlight
+                      if (isTargetSquare || isSourceSquare) {
+                        if (activeVariationIndex !== null) {
+                          highlightStyle = 'bg-yellow-500/20'; // Default highlight for manually placed variations
+                        } else {
+                          const currentMove = currentMoveIndex >= 0 ? analysis.moves[currentMoveIndex] : null;
+                          if (currentMove) {
+                            const isBrilliantOrGreat = currentMove.classification === 'Brilliant' || currentMove.classification === 'Great';
+                            if (isBrilliantOrGreat) {
+                              highlightStyle = 'bg-emerald-500/35'; // Greenish highlight
+                            } else if (currentMove.classification === 'Inaccuracy' || currentMove.classification === 'Mistake' || currentMove.classification === 'Blunder') {
+                              highlightStyle = 'bg-yellow-500/35'; // Yellowish highlight
+                            } else {
+                              highlightStyle = 'bg-yellow-500/20'; // Default move highlight
+                            }
                           } else {
-                            highlightStyle = 'bg-yellow-500/20'; // Default move highlight
+                            highlightStyle = 'bg-yellow-500/20';
                           }
                         }
                       }
@@ -1647,16 +1696,14 @@ export default function Home() {
                         highlightStyle = 'bg-blue-400/20';
                       }
 
+                      const currentMove = currentMoveIndex >= 0 ? analysis.moves[currentMoveIndex] : null;
+
                       return (
                         <div 
                           className={`relative w-full h-full flex items-center justify-center cursor-pointer ${highlightStyle}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSquareClick(square);
-                          }}
                         >
                           {children}
-                          {isTargetSquare && getBoardBadge(currentMove.classification)}
+                          {isTargetSquare && activeVariationIndex === null && currentMove && getBoardBadge(currentMove.classification)}
                           
                           {/* Possible moves marker dots/rings */}
                           {isPossible && (
