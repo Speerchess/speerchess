@@ -2430,8 +2430,20 @@ export default function Home() {
                     className="w-full h-20 p-2.5 bg-stone-50 border border-stone-250 rounded-xl focus:ring-1 focus:ring-slate-800 focus:border-slate-800 outline-none text-xs text-slate-700 resize-none shadow-inner"
                   />
                   <button 
-                    onClick={() => {
+                    onClick={async () => {
                       if (feedbackText.trim()) {
+                        try {
+                          await fetch('/api/feedback', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              rating: feedbackRating,
+                              text: feedbackText
+                            })
+                          });
+                        } catch (e) {
+                          console.error("Failed to send feedback:", e);
+                        }
                         setFeedbackSubmitted(true);
                         setFeedbackText('');
                         setTimeout(() => setFeedbackSubmitted(false), 3000);
@@ -2656,6 +2668,7 @@ export default function Home() {
                         <Chessboard 
                           options={{
                             position: item.afterFen,
+                            boardOrientation: item.moveIndex % 2 === 0 ? 'white' : 'black',
                             allowDragging: false
                           }}
                         />
@@ -2709,6 +2722,7 @@ export default function Home() {
                         <Chessboard 
                           options={{
                             position: item.afterFen,
+                            boardOrientation: item.moveIndex % 2 === 0 ? 'white' : 'black',
                             allowDragging: false
                           }}
                         />
@@ -2755,6 +2769,7 @@ export default function Home() {
                 <Chessboard 
                   options={{
                     position: selectedHighlight.showAfterBoard ? selectedHighlight.afterFen : selectedHighlight.beforeFen,
+                    boardOrientation: selectedHighlight.moveIndex % 2 === 0 ? 'white' : 'black',
                     allowDragging: false,
                     darkSquareStyle: { backgroundColor: themeColors.dark },
                     lightSquareStyle: { backgroundColor: themeColors.light },
