@@ -265,35 +265,69 @@ export function isPieceHanging(lastFen: string, fen: string, square: Square): bo
   return false;
 }
 
-export class ChessAnalyzer {
+class PooledEngine {
   private worker: Worker | null = null;
   private isReady = false;
-  private messageCallback: ((msg: string) => void) | null = null;
+  private readyPromise: Promise<void>;
+  private readyResolve: (() => void) | null = null;
+  private readyReject: ((err: any) => void) | null = null;
+  private currentTaskResolve: ((res: { evalCp: number; bestMove: string; secondEvalCp?: number; secondBestMove?: string }) => void) | null = null;
+  private isBusy = false;
 
-  init() {
-    if (typeof window === 'undefined') return;
-    if (this.worker) return;
-    
-    // Load the WASM stockfish from the public folder
-    this.worker = new Worker('/stockfish.js');
-    
-    this.worker.onmessage = (e) => {
-      if (e.data === 'uciok') {
-        this.isReady = true;
-      }
-      if (this.messageCallback) {
-        this.messageCallback(e.data);
-      }
-    };
-    
-    this.worker.postMessage('uci');
+  // State for current evaluation
+  private evalCp = 0;
+  private bestMove = '';
+  private secondEvalCp: number | undefined;
+  private secondBestMove: string | undefined;
+
+  constructor() {
+    this.readyPromise = new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+
+    if (typeof window === 'undefined') {
+      if (this.readyReject) this.readyReject(new Error('Window is undefined (SSR)'));
+      return;
+    }
+
+    try {
+      this.worker = new Worker('/stockfish-18-lite-single.js');
+      
+      this.worker.onmessage = (e) => {
+        this.handleMessage(e.data);
+      };
+
+      this.worker.onerror = (err) => {
+        if (this.readyReject) this.readyReject(err);
+        if (this.currentTaskResolve) {
+          this.currentTaskResolve({ evalCp: 0, bestMove: '' });
+          this.currentTaskResolve = null;
+        }
+        this.isBusy = false;
+      };
+
+      this.worker.postMessage('uci');
+    } catch (err) {
+      if (this.readyReject) this.readyReject(err);
+    }
   }
 
-  private evaluateFen(fen: string, depth: number = 10): Promise<{ evalCp: number; bestMove: string; secondEvalCp?: number; secondBestMove?: string }> {
+  public ready(): Promise<void> {
+    return this.readyPromise;
+  }
+
+  public getBusy(): boolean {
+    return this.isBusy;
+  }
+
+  public evaluate(fen: string, depth: number): Promise<{ evalCp: number; bestMove: string; secondEvalCp?: number; secondBestMove?: string }> {
+    this.isBusy = true;
     return new Promise((resolve) => {
       try {
         const tempChess = new Chess(fen);
         if (tempChess.isGameOver()) {
+          this.isBusy = false;
           if (tempChess.isCheckmate()) {
             return resolve({ evalCp: -10000, bestMove: '(none)' });
           }
@@ -303,64 +337,178 @@ export class ChessAnalyzer {
         // Fallback
       }
 
-      if (!this.worker) return resolve({ evalCp: 0, bestMove: '' });
-      
+      if (!this.worker) {
+        this.isBusy = false;
+        return resolve({ evalCp: 0, bestMove: '' });
+      }
+
+      this.currentTaskResolve = resolve;
+
       this.worker.postMessage(`position fen ${fen}`);
       this.worker.postMessage(`go depth ${depth}`);
-      
-      let evalCp = 0;
-      let bestMove = '';
-      let secondEvalCp: number | undefined;
-      let secondBestMove: string | undefined;
-      
-      this.messageCallback = (msg: string) => {
-        const matchMultiPV = msg.match(/multipv (\d+)/);
-        if (matchMultiPV) {
-          const pvId = parseInt(matchMultiPV[1], 10);
-          const matchEval = msg.match(/score cp (-?\d+)/);
-          const matchMate = msg.match(/score mate (-?\d+)/);
-          const matchPv = msg.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
-          
-          let score = 0;
-          if (matchEval) {
-            score = parseInt(matchEval[1], 10);
-          } else if (matchMate) {
-            score = parseInt(matchMate[1], 10) > 0 ? 10000 : -10000;
-          }
-          
-          let pvMove = '';
-          if (matchPv) {
-            pvMove = matchPv[1];
-          }
-          
-          if (pvId === 1) {
-            evalCp = score;
-            if (pvMove) bestMove = pvMove;
-          } else if (pvId === 2) {
-            secondEvalCp = score;
-            if (pvMove) secondBestMove = pvMove;
-          }
-        }
-        
-        if (msg.startsWith('bestmove')) {
-          const bm = msg.split(' ')[1];
-          if (bm && bm !== '(none)') {
-            bestMove = bm;
-          }
-          this.messageCallback = null; // Clear callback
-          resolve({ evalCp, bestMove, secondEvalCp, secondBestMove });
-        }
-      };
     });
   }
 
-  async analyzeGame(pgn: string, onProgress?: (progress: number) => void, depth: number = 10): Promise<GameAnalysis> {
-    if (!this.worker) this.init();
-    
-    // Set MultiPV = 2 for analyzing candidates
+  public terminate(): void {
     if (this.worker) {
-      this.worker.postMessage('ucinewgame');
-      this.worker.postMessage('setoption name MultiPV value 2');
+      this.worker.postMessage('quit');
+      this.worker.terminate();
+      this.worker = null;
+    }
+  }
+
+  private handleMessage(msg: string): void {
+    if (msg === 'uciok') {
+      if (this.worker) {
+        this.worker.postMessage('setoption name MultiPV value 2');
+        this.worker.postMessage('setoption name Hash value 32');
+        this.worker.postMessage('isready');
+      }
+    } else if (msg === 'readyok') {
+      this.isReady = true;
+      if (this.readyResolve) {
+        this.readyResolve();
+        this.readyResolve = null;
+      }
+    } else {
+      // Parse evaluation lines
+      this.parseLine(msg);
+    }
+  }
+
+  private parseLine(msg: string): void {
+    const matchMultiPV = msg.match(/multipv (\d+)/);
+    if (matchMultiPV) {
+      const pvId = parseInt(matchMultiPV[1], 10);
+      const matchEval = msg.match(/score cp (-?\d+)/);
+      const matchMate = msg.match(/score mate (-?\d+)/);
+      const matchPv = msg.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+      
+      let score = 0;
+      if (matchEval) {
+        score = parseInt(matchEval[1], 10);
+      } else if (matchMate) {
+        score = parseInt(matchMate[1], 10) > 0 ? 10000 : -10000;
+      }
+      
+      let pvMove = '';
+      if (matchPv) {
+        pvMove = matchPv[1];
+      }
+      
+      if (pvId === 1) {
+        this.evalCp = score;
+        if (pvMove) this.bestMove = pvMove;
+      } else if (pvId === 2) {
+        this.secondEvalCp = score;
+        if (pvMove) this.secondBestMove = pvMove;
+      }
+    }
+    
+    if (msg.startsWith('bestmove')) {
+      const bm = msg.split(' ')[1];
+      if (bm && bm !== '(none)') {
+        this.bestMove = bm;
+      }
+      const resolve = this.currentTaskResolve;
+      this.currentTaskResolve = null;
+      
+      const evalCp = this.evalCp;
+      const bestMove = this.bestMove;
+      const secondEvalCp = this.secondEvalCp;
+      const secondBestMove = this.secondBestMove;
+
+      // Reset state for next evaluation
+      this.evalCp = 0;
+      this.bestMove = '';
+      this.secondEvalCp = undefined;
+      this.secondBestMove = undefined;
+
+      this.isBusy = false;
+
+      if (resolve) {
+        resolve({ evalCp, bestMove, secondEvalCp, secondBestMove });
+      }
+    }
+  }
+}
+
+class EnginePool {
+  private engines: PooledEngine[] = [];
+  private taskQueue: {
+    fen: string;
+    depth: number;
+    resolve: (res: { evalCp: number; bestMove: string; secondEvalCp?: number; secondBestMove?: string }) => void;
+  }[] = [];
+
+  constructor(size: number) {
+    for (let i = 0; i < size; i++) {
+      this.engines.push(new PooledEngine());
+    }
+  }
+
+  public async ready(): Promise<void> {
+    const results = await Promise.allSettled(this.engines.map((e) => e.ready()));
+    const anyAlive = results.some((r) => r.status === 'fulfilled');
+    if (!anyAlive) {
+      throw new Error('All engines failed to initialize');
+    }
+  }
+
+  public analyze(fen: string, depth: number): Promise<{ evalCp: number; bestMove: string; secondEvalCp?: number; secondBestMove?: string }> {
+    return new Promise((resolve) => {
+      this.taskQueue.push({ fen, depth, resolve });
+      this.dispatch();
+    });
+  }
+
+  public destroy(): void {
+    for (const engine of this.engines) {
+      engine.terminate();
+    }
+    this.engines = [];
+    this.taskQueue = [];
+  }
+
+  private dispatch(): void {
+    if (this.taskQueue.length === 0) return;
+
+    const idleEngine = this.engines.find((e) => !e.getBusy());
+    if (!idleEngine) return;
+
+    const task = this.taskQueue.shift();
+    if (!task) return;
+
+    idleEngine.evaluate(task.fen, task.depth).then((result) => {
+      task.resolve(result);
+      this.dispatch();
+    });
+  }
+}
+
+export class ChessAnalyzer {
+  private pool: EnginePool | null = null;
+
+  init() {
+    if (typeof window === 'undefined') return;
+    if (this.pool) return;
+    
+    // Core check (min 2, max 4)
+    const cores = navigator.hardwareConcurrency || 2;
+    const poolSize = Math.max(2, Math.min(cores, 4));
+    this.pool = new EnginePool(poolSize);
+  }
+
+  private evaluateFen(fen: string, depth: number = 10): Promise<{ evalCp: number; bestMove: string; secondEvalCp?: number; secondBestMove?: string }> {
+    if (!this.pool) this.init();
+    if (!this.pool) return Promise.resolve({ evalCp: 0, bestMove: '' });
+    return this.pool.analyze(fen, depth);
+  }
+
+  async analyzeGame(pgn: string, onProgress?: (progress: number) => void, depth: number = 10): Promise<GameAnalysis> {
+    if (!this.pool) this.init();
+    if (this.pool) {
+      await this.pool.ready();
     }
     
     const chess = new Chess();
@@ -415,11 +563,41 @@ export class ChessAnalyzer {
     let whiteElo = rawWhiteElo !== null ? convertRating(rawWhiteElo) : null;
     let blackElo = rawBlackElo !== null ? convertRating(rawBlackElo) : null;
     
+    // Build list of all FENs to analyze.
+    // There are history.length + 1 positions (initial position + positions after each move).
+    const fensToAnalyze: string[] = [];
+    const tempChess = new Chess();
+    fensToAnalyze.push(tempChess.fen()); // Initial position
+    for (const move of history) {
+      tempChess.move(move);
+      fensToAnalyze.push(tempChess.fen());
+    }
+
+    const totalFens = fensToAnalyze.length;
+    let completedFens = 0;
+
+    // Dispatch all analyses in parallel using EnginePool
+    const analysisPromises = fensToAnalyze.map((fen) => {
+      if (!this.pool) return Promise.resolve<{ evalCp: number; bestMove: string; secondEvalCp?: number; secondBestMove?: string }>({ evalCp: 0, bestMove: '' });
+      return this.pool.analyze(fen, depth).then((res) => {
+        completedFens++;
+        if (onProgress) {
+          onProgress((completedFens / totalFens) * 100);
+        }
+        return res;
+      });
+    });
+
+    const evaluatedFens = await Promise.all(analysisPromises);
+
     const moveAnalyses: MoveAnalysis[] = [];
     const currentChess = new Chess();
     
-    let prevEval = 0;
-    let prevSecondEval = 0;
+    let prevEval = evaluatedFens[0].evalCp;
+    let prevSecondEval = evaluatedFens[0].secondEvalCp !== undefined ? evaluatedFens[0].secondEvalCp : prevEval;
+    let currentBestMove = evaluatedFens[0].bestMove;
+    let currentSecondBestMove = evaluatedFens[0].secondBestMove;
+    
     let whiteAccuracySum = 0;
     let blackAccuracySum = 0;
     let whiteCpLossSum = 0;
@@ -435,13 +613,6 @@ export class ChessAnalyzer {
       black: tallyTemplate()
     };
 
-    // Evaluate opening position with MultiPV=2
-    const { evalCp: initialEval, bestMove: initialBest, secondEvalCp: initialSecondEval, secondBestMove: initialSecondBest } = await this.evaluateFen(currentChess.fen(), depth);
-    prevEval = initialEval;
-    prevSecondEval = initialSecondEval !== undefined ? initialSecondEval : initialEval;
-    let currentBestMove = initialBest;
-    let currentSecondBestMove = initialSecondBest;
-
     for (let i = 0; i < history.length; i++) {
       const move = history[i];
       const isWhiteTurn = currentChess.turn() === 'w';
@@ -452,7 +623,13 @@ export class ChessAnalyzer {
       currentChess.move(move);
       const currentFen = currentChess.fen();
       
-      const { evalCp, bestMove, secondEvalCp, secondBestMove } = await this.evaluateFen(currentFen, depth);
+      // Index in evaluatedFens for the state AFTER this move is i + 1
+      const evalResult = evaluatedFens[i + 1];
+      const evalCp = evalResult.evalCp;
+      const bestMove = evalResult.bestMove;
+      const secondEvalCp = evalResult.secondEvalCp;
+      const secondBestMove = evalResult.secondBestMove;
+      
       const currentEvalForPlayer = -evalCp;
       
       const evalDiffCp = currentEvalForPlayer - prevEval;
@@ -657,8 +834,6 @@ export class ChessAnalyzer {
       prevSecondEval = secondEvalCp !== undefined ? secondEvalCp : evalCp;
       currentBestMove = bestMove;
       currentSecondBestMove = secondBestMove;
-      
-      if (onProgress) onProgress(((i + 1) / history.length) * 100);
     }
     
     const totalWhiteMoves = Math.ceil(history.length / 2);
@@ -701,10 +876,9 @@ export class ChessAnalyzer {
   }
 
   destroy() {
-    if (this.worker) {
-      this.worker.postMessage('quit');
-      this.worker.terminate();
-      this.worker = null;
+    if (this.pool) {
+      this.pool.destroy();
+      this.pool = null;
     }
   }
 }
