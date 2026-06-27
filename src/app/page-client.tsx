@@ -331,6 +331,27 @@ export default function Home() {
   const [variationStartMoveIndex, setVariationStartMoveIndex] = useState<number | null>(null);
   const [activeVariationIndex, setActiveVariationIndex] = useState<number | null>(null);
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
+  const [gifAnnotationMode, setGifAnnotationMode] = useState<'all' | 'standard' | 'none'>('standard');
+  const [gifOrientation, setGifOrientation] = useState<'white' | 'black'>('white');
+  const [gifShowNames, setGifShowNames] = useState<boolean>(false);
+  const [showGifSettings, setShowGifSettings] = useState<boolean>(false);
+  const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [hyperlinks, setHyperlinks] = useState<{ text: string; url: string }[]>([]);
+
+  useEffect(() => {
+    setGifOrientation(boardOrientation);
+  }, [boardOrientation]);
+
+  useEffect(() => {
+    fetch('/api/hyperlinks')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setHyperlinks(data);
+        }
+      })
+      .catch((err) => console.error('Error fetching hyperlinks:', err));
+  }, []);
   const [analysisDepth, setAnalysisDepth] = useState<number>(16);
 
   // Click-to-move state
@@ -1298,7 +1319,9 @@ export default function Home() {
       const gifBlob = await generateGifClient(pgn, analysis, {
         darkColor: themeColors.dark,
         lightColor: themeColors.light,
-        orientation: boardOrientation,
+        orientation: gifOrientation,
+        annotationMode: gifAnnotationMode,
+        showPlayerNames: gifShowNames,
         onProgress: () => {}
       });
       const gifUrl = URL.createObjectURL(gifBlob);
@@ -1465,8 +1488,13 @@ export default function Home() {
 
     if (sharedHashid) {
       const link = `${window.location.origin}/${sharedHashid}`;
-      navigator.clipboard.writeText(link);
-      alert(`공유 링크가 클립보드에 복사되었습니다!\n코드: ${sharedHashid}`);
+      try {
+        await navigator.clipboard.writeText(link);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+      } catch (e) {
+        alert("링크 복사에 실패했습니다.");
+      }
       return;
     }
 
@@ -1494,8 +1522,9 @@ export default function Home() {
       if (data.hashid) {
         setSharedHashid(data.hashid);
         const link = `${window.location.origin}/${data.hashid}`;
-        navigator.clipboard.writeText(link);
-        alert(`공유 링크가 클립보드에 복사되었습니다!\n코드: ${data.hashid}`);
+        await navigator.clipboard.writeText(link);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
         fetchGames();
       } else {
         throw new Error(data.error || '올바르지 않은 응답');
@@ -1675,12 +1704,61 @@ export default function Home() {
               </div>
             </main>
 
-            <div className="p-4 bg-white border-t border-stone-200/60">
+            <div className="p-4 bg-white border-t border-stone-200/60 space-y-2 shrink-0">
               <button 
                 onClick={startReview}
-                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer"
               >
-                첫 수부터 복기 시작 <ChevronRight size={20} />
+                첫 수부터 복기 시작 <ChevronRight size={18} />
+              </button>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <button 
+                  onClick={handleDownloadGif} 
+                  disabled={isExportingGif}
+                  className="bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer animate-none"
+                >
+                  {isExportingGif ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={14} />
+                      GIF 내보내기
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={handleCopyPgn}
+                  className="bg-white hover:bg-stone-50 text-slate-800 font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-stone-300 shadow-sm text-xs active:scale-95 cursor-pointer"
+                >
+                  <Layers size={14} />
+                  PGN 복사하기
+                </button>
+              </div>
+              <button 
+                onClick={handleShareGame}
+                disabled={isSharing}
+                className="w-full bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
+              >
+                {isSharing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    공유 링크 생성 중...
+                  </>
+                ) : sharedHashid ? (
+                  <>
+                    <CheckCircle2 size={14} className="text-green-400" />
+                    링크 복사 완료 (코드: {sharedHashid})
+                  </>
+                ) : (
+                  <>
+                    <Globe size={14} />
+                    분석 링크 공유
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -2120,25 +2198,11 @@ export default function Home() {
         {view === 'INPUT' && (
           <div className="flex-1 flex flex-col bg-white overflow-y-auto no-scrollbar relative">
             {/* Home Top Bar */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-stone-200/40 bg-stone-50/25 shrink-0">
-              <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-slate-600 cursor-pointer"
-                title="설정"
-              >
-                <Settings size={20} />
-              </button>
+            <div className="flex items-center justify-center px-4 py-3 border-b border-stone-200/40 bg-stone-50/25 shrink-0">
               <div className="flex items-center gap-1">
                 <SpeerLogo className="w-4 h-4 text-slate-800" />
                 <span className="font-extrabold text-sm tracking-tight text-slate-800">speerchess</span>
               </div>
-              <button 
-                onClick={() => setIsMenuOpen(true)}
-                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-slate-600 cursor-pointer"
-                title="메뉴"
-              >
-                <Menu size={20} />
-              </button>
             </div>
 
             {/* Header */}
@@ -2289,27 +2353,99 @@ export default function Home() {
                 <div className="space-y-3 pt-2">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">내보내기 & 공유</span>
                   
-                  {/* GIF Export */}
-                  <button 
-                    onClick={() => {
-                      setIsSidebarOpen(false);
-                      handleDownloadGif();
-                    }} 
-                    disabled={isExportingGif}
-                    className="w-full bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
-                  >
-                    {isExportingGif ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        생성 중...
-                      </>
-                    ) : (
-                      <>
-                        <Download size={14} />
-                        GIF 내보내기
-                      </>
-                    )}
-                  </button>
+                  {/* GIF Export & Settings Row */}
+                  <div className="flex gap-2 items-center">
+                    <button 
+                      onClick={() => {
+                        setIsSidebarOpen(false);
+                        handleDownloadGif();
+                      }} 
+                      disabled={isExportingGif}
+                      className="flex-1 bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer h-11"
+                    >
+                      {isExportingGif ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <Download size={14} />
+                          GIF 내보내기
+                        </>
+                      )}
+                    </button>
+                    <button 
+                      onClick={() => setShowGifSettings(prev => !prev)}
+                      className={`p-3 rounded-xl border flex items-center justify-center transition-all cursor-pointer h-11 w-11 active:scale-95 ${
+                        showGifSettings ? 'bg-slate-100 border-slate-300 text-slate-850' : 'bg-white hover:bg-stone-50 border-stone-300 text-slate-600'
+                      }`}
+                      title="GIF 설정"
+                    >
+                      <Settings size={16} className={isExportingGif ? "animate-spin" : ""} />
+                    </button>
+                  </div>
+
+                  {/* Collapsible Settings Panel */}
+                  {showGifSettings && (
+                    <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-3 text-xs">
+                      {/* Annotation Mode */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 block">GIF 주석 표시</label>
+                        <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200">
+                          {(['standard', 'all', 'none'] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setGifAnnotationMode(mode)}
+                              className={`py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                gifAnnotationMode === mode 
+                                  ? 'bg-slate-800 text-white shadow-sm' 
+                                  : 'text-slate-500 hover:bg-stone-50'
+                              }`}
+                            >
+                              {mode === 'standard' ? '표준설정' : mode === 'all' ? '전체설정' : '표시안함'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Orientation */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 block">보드 방향 (아래쪽 기준)</label>
+                        <div className="grid grid-cols-2 gap-1 bg-white p-1 rounded-lg border border-stone-200">
+                          {(['white', 'black'] as const).map((orient) => (
+                            <button
+                              key={orient}
+                              type="button"
+                              onClick={() => setGifOrientation(orient)}
+                              className={`py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                gifOrientation === orient 
+                                  ? 'bg-slate-800 text-white shadow-sm' 
+                                  : 'text-slate-500 hover:bg-stone-50'
+                              }`}
+                            >
+                              {orient === 'white' ? '백 (White)' : '흑 (Black)'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Show Names Toggle */}
+                      <div className="flex justify-between items-center pt-2 border-t border-stone-200">
+                        <label className="text-[10px] font-bold text-slate-600">플레이어 이름 표시</label>
+                        <button
+                          type="button"
+                          onClick={() => setGifShowNames(prev => !prev)}
+                          className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
+                            gifShowNames ? 'bg-slate-800 justify-end' : 'bg-stone-300 justify-start'
+                          }`}
+                        >
+                          <div className="w-4 h-4 rounded-full bg-white transition-transform shadow-sm" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* PGN Copy */}
                   <button 
@@ -2334,10 +2470,15 @@ export default function Home() {
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         생성 중...
                       </>
-                    ) : sharedHashid ? (
+                    ) : isCopied ? (
                       <>
                         <CheckCircle2 size={14} className="text-green-400" />
                         공유 링크 복사 완료
+                      </>
+                    ) : sharedHashid ? (
+                      <>
+                        <Globe size={14} />
+                        공유 링크 복사하기
                       </>
                     ) : (
                       <>
@@ -2355,6 +2496,29 @@ export default function Home() {
                   )}
                 </div>
               </div>
+
+              {/* Relaxation YouTube Links */}
+              {hyperlinks.length > 0 && (
+                <div className="border-t border-stone-100 pt-4 space-y-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 flex items-center gap-1">
+                    ☕ 쉬어가는 길 (기분 전환)
+                  </span>
+                  <div className="space-y-1.5 text-xs text-slate-600">
+                    {hyperlinks.map((link, idx) => (
+                      <a
+                        key={idx}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-slate-700 hover:text-slate-900 font-bold hover:underline transition-all py-0.5 active:scale-98"
+                      >
+                        <span className="text-[10px]">📺</span>
+                        <span className="truncate max-w-[200px]">{link.text}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Sidebar Footer Info */}
               <div className="text-[9px] text-slate-400 font-bold text-center border-t border-stone-100 pt-4 leading-relaxed">

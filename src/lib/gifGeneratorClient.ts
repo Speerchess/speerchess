@@ -28,9 +28,14 @@ const classificationColors: Record<string, string> = {
 const classificationSymbols: Record<string, string> = {
   'Brilliant': '!!',
   'Great': '!',
+  'Best': '★',
+  'Excellent': '●',
+  'Good': '✓',
   'Inaccuracy': '!?',
   'Mistake': '?',
-  'Blunder': '??'
+  'Blunder': '??',
+  'Book': '◆',
+  'Forced': '🔒'
 };
 
 let loadedImages: Record<string, HTMLImageElement> | null = null;
@@ -83,22 +88,37 @@ export async function generateGifClient(
     lightColor?: string;
     onProgress?: (p: number) => void;
     orientation?: 'white' | 'black';
+    annotationMode?: 'all' | 'standard' | 'none';
+    showPlayerNames?: boolean;
   }
 ): Promise<Blob> {
   const images = await loadPieces();
   const logoImage = await loadLogo();
-  const chess = new Chess();
-  chess.loadPgn(pgn);
-  const history = chess.history({ verbose: true });
   
+  const chessForHeaders = new Chess();
+  try {
+    chessForHeaders.loadPgn(pgn);
+  } catch (err) {
+    // Fail-safe
+  }
+  const headers = chessForHeaders.header();
+  const whiteName = headers.White || 'White';
+  const blackName = headers.Black || 'Black';
+  const whiteElo = headers.WhiteElo ? `(${headers.WhiteElo})` : '';
+  const blackElo = headers.BlackElo ? `(${headers.BlackElo})` : '';
+
   const replayChess = new Chess();
+  const history = chessForHeaders.history({ verbose: true });
   
   const gif = new GIFEncoder();
   
-  // We use a temporary canvas to draw the frames
+  const showNames = !!options?.showPlayerNames;
+  const boardOffsetY = showNames ? 35 : 0;
+
   const canvas = document.createElement('canvas');
   canvas.width = BOARD_SIZE;
-  canvas.height = BOARD_SIZE;
+  canvas.height = BOARD_SIZE + (showNames ? 70 : 0);
+  
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error("Could not get 2d context");
 
@@ -112,6 +132,10 @@ export async function generateGifClient(
   const drawBoard = (currentChess: Chess, moveAnalysis?: MoveAnalysis, lastMove?: {from: string, to: string}, drawWatermark: boolean = false) => {
     const isFlipped = options?.orientation === 'black';
 
+    // Clear background
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     // Draw squares
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
@@ -121,7 +145,7 @@ export async function generateGifClient(
         const canvasR = isFlipped ? 7 - r : r;
         const canvasC = isFlipped ? 7 - c : c;
         
-        ctx.fillRect(canvasC * SQUARE_SIZE, canvasR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
+        ctx.fillRect(canvasC * SQUARE_SIZE, boardOffsetY + canvasR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
       }
     }
 
@@ -138,8 +162,8 @@ export async function generateGifClient(
       const canvasToFile = isFlipped ? 7 - toFile : toFile;
       
       ctx.fillStyle = 'rgba(255, 255, 51, 0.5)';
-      ctx.fillRect(canvasFromFile * SQUARE_SIZE, canvasFromR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
-      ctx.fillRect(canvasToFile * SQUARE_SIZE, canvasToR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
+      ctx.fillRect(canvasFromFile * SQUARE_SIZE, boardOffsetY + canvasFromR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
+      ctx.fillRect(canvasToFile * SQUARE_SIZE, boardOffsetY + canvasToR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
     }
 
     // Draw watermark
@@ -148,7 +172,7 @@ export async function generateGifClient(
       ctx.font = 'bold 32px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('speerchess.xyz', BOARD_SIZE / 2, BOARD_SIZE / 2);
+      ctx.fillText('speerchess.xyz', BOARD_SIZE / 2, boardOffsetY + BOARD_SIZE / 2);
     }
 
     // Draw pieces
@@ -162,42 +186,69 @@ export async function generateGifClient(
           if (imgKey && images[imgKey]) {
             const canvasR = isFlipped ? 7 - r : r;
             const canvasC = isFlipped ? 7 - c : c;
-            ctx.drawImage(images[imgKey], canvasC * SQUARE_SIZE, canvasR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
+            ctx.drawImage(images[imgKey], canvasC * SQUARE_SIZE, boardOffsetY + canvasR * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
           }
         }
       }
     }
 
-    // Draw annotation if exists
-    if (moveAnalysis && lastMove) {
-      const toRank = 8 - parseInt(lastMove.to[1], 10);
-      const toFile = lastMove.to.charCodeAt(0) - 97;
-      
-      const canvasToR = isFlipped ? 7 - toRank : toRank;
-      const canvasToFile = isFlipped ? 7 - toFile : toFile;
-      
-      const symbol = classificationSymbols[moveAnalysis.classification];
-      const color = classificationColors[moveAnalysis.classification];
-      
-      if (symbol && color) {
-        const badgeX = canvasToFile * SQUARE_SIZE + SQUARE_SIZE - 18;
-        const badgeY = canvasToR * SQUARE_SIZE + 4;
-        
-        ctx.beginPath();
-        ctx.arc(badgeX + 10, badgeY + 10, 14, 0, 2 * Math.PI);
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+    // Draw player names
+    if (showNames) {
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, BOARD_SIZE, 35);
+      ctx.fillRect(0, BOARD_SIZE + 35, BOARD_SIZE, 35);
 
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 14px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        // Adjust for emojis
-        const yOffset = symbol.length > 2 ? 12 : 11;
-        ctx.fillText(symbol, badgeX + 10, badgeY + yOffset);
+      const topText = isFlipped ? `${whiteName} ${whiteElo}` : `${blackName} ${blackElo}`;
+      const bottomText = isFlipped ? `${blackName} ${blackElo}` : `${whiteName} ${whiteElo}`;
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      
+      // Top Name
+      ctx.fillText(topText, 12, 17.5);
+      
+      // Bottom Name
+      ctx.fillText(bottomText, 12, BOARD_SIZE + 35 + 17.5);
+    }
+
+    // Draw annotation if exists
+    if (moveAnalysis && lastMove && options?.annotationMode !== 'none') {
+      const mode = options?.annotationMode || 'standard';
+      const cl = moveAnalysis.classification;
+      const isStandardClass = ['Brilliant', 'Great', 'Inaccuracy', 'Mistake', 'Blunder'].includes(cl);
+
+      if (mode === 'all' || (mode === 'standard' && isStandardClass)) {
+        const toRank = 8 - parseInt(lastMove.to[1], 10);
+        const toFile = lastMove.to.charCodeAt(0) - 97;
+        
+        const canvasToR = isFlipped ? 7 - toRank : toRank;
+        const canvasToFile = isFlipped ? 7 - toFile : toFile;
+        
+        const symbol = classificationSymbols[cl];
+        const color = classificationColors[cl];
+        
+        if (symbol && color) {
+          const badgeX = canvasToFile * SQUARE_SIZE + SQUARE_SIZE - 18;
+          const badgeY = boardOffsetY + canvasToR * SQUARE_SIZE + 4;
+          
+          ctx.beginPath();
+          ctx.arc(badgeX + 10, badgeY + 10, 14, 0, 2 * Math.PI);
+          ctx.fillStyle = color;
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 14px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const isEmoji = symbol === '🔒';
+          const yOffset = isEmoji ? 13 : (symbol.length > 2 ? 12 : 11);
+          ctx.fillText(symbol, badgeX + 10, badgeY + yOffset);
+        }
       }
     }
   };
@@ -225,14 +276,14 @@ export async function generateGifClient(
 
   addFrameToGif(1500); // Hold final position for 1.5 seconds
   
-  // Draw outro logo frame
+  // Draw outro logo frame (covering entire canvas height)
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+  ctx.fillRect(0, 0, BOARD_SIZE, canvas.height);
   
   if (logoImage) {
     const logoSize = 360;
     const logoX = (BOARD_SIZE - logoSize) / 2;
-    const logoY = (BOARD_SIZE - logoSize) / 2;
+    const logoY = (canvas.height - logoSize) / 2;
     ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
   }
   addFrameToGif(2000); // Hold outro logo for 2 seconds
