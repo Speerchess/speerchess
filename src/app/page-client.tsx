@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, usePathname } from 'next/navigation';
-import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X } from 'lucide-react';
+import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X, Home as HomeIcon, Clock, BookOpen, GitBranch, HelpCircle, Send, Moon, Sun, ArrowUpRight, Shield, Award, MoreVertical } from 'lucide-react';
 import { ChessAnalyzer, GameAnalysis, MoveAnalysis } from '../lib/analyzer';
 import { generateGifClient } from '../lib/gifGeneratorClient';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
@@ -409,6 +409,91 @@ export default function Home() {
   // New States for Settings, Menu, and views
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
+  const [isAnalyzeSettingsOpen, setIsAnalyzeSettingsOpen] = useState<boolean>(false);
+  const [isAnalyzeMenuOpen, setIsAnalyzeMenuOpen] = useState<boolean>(false);
+  
+  // Unified App Routing Tab
+  const [activeTab, setActiveTab] = useState<'home' | 'review' | 'analyze' | 'chessle' | 'more'>('home');
+  const [moreSubView, setMoreSubView] = useState<'menu' | 'clock' | 'ocr' | 'faq' | 'feedback' | 'proposal' | 'terms' | 'privacy' | 'credits' | 'blog' | 'about' | 'settings' | 'brilliant' | 'blunder'>('menu');
+
+  // Custom Settings
+  const [darkMode, setDarkMode] = useState<'light' | 'dark'>('dark');
+  const [pieceSet, setPieceSet] = useState<'cburnett' | 'disguised' | 'blindfold'>('cburnett');
+  const [arrowColor, setArrowColor] = useState<string>('#10b981');
+  const [showCoordinates, setShowCoordinates] = useState<boolean>(true);
+  const [showMoveDestinations, setShowMoveDestinations] = useState<boolean>(true);
+  const [showBoardHighlights, setShowBoardHighlights] = useState<boolean>(true);
+  const [showMaterialDifference, setShowMaterialDifference] = useState<boolean>(true);
+  const [engineLinesCount, setEngineLinesCount] = useState<number>(2);
+  const [explorerDb, setExplorerDb] = useState<'lichess' | 'masters'>('lichess');
+  const [bestMoveArrowEnabled, setBestMoveArrowEnabled] = useState<boolean>(true);
+  const [isAnalyzeEngineEnabled, setIsAnalyzeEngineEnabled] = useState<boolean>(true);
+  const [analyzeSubTab, setAnalyzeSubTab] = useState<'BOOK' | 'TREE' | 'SETTINGS'>('BOOK');
+
+  // Chess Clock States
+  const [clockBaseTime, setClockBaseTime] = useState<number>(300); // in seconds
+  const [clockIncrement, setClockIncrement] = useState<number>(2); // in seconds
+  const [clockWhiteTime, setClockWhiteTime] = useState<number>(300);
+  const [clockBlackTime, setClockBlackTime] = useState<number>(300);
+  const [clockActive, setClockActive] = useState<boolean>(false);
+  const [clockTurn, setClockTurn] = useState<'w' | 'b' | null>(null);
+
+  // Analysis Move Tree
+  const [moveTree, setMoveTree] = useState<Record<string, {
+    id: string;
+    san: string;
+    from: string;
+    to: string;
+    fen: string;
+    parentId: string | null;
+    children: string[];
+  }>>({
+    'root': {
+      id: 'root',
+      san: '',
+      from: '',
+      to: '',
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      parentId: null,
+      children: []
+    }
+  });
+  const [currentNodeId, setCurrentNodeId] = useState<string>('root');
+  const [openingData, setOpeningData] = useState<any>(null);
+  const [isLoadingOpening, setIsLoadingOpening] = useState<boolean>(false);
+  const [bestMoveArrow, setBestMoveArrow] = useState<{ from: string; to: string } | null>(null);
+
+  // Feedback & Proposals
+  const [feedbackEmail, setFeedbackEmail] = useState<string>('');
+  const [newProposalTitle, setNewProposalTitle] = useState<string>('');
+  const [newProposalDesc, setNewProposalDesc] = useState<string>('');
+  const [proposals, setProposals] = useState<{ title: string; desc: string; votes: number }[]>([
+    { title: '실시간 체스닷컴 매치 연동', desc: '현재 진행 중인 체스닷컴 라이브 매치를 실시간으로 가져와 동시 분석하는 기능.', votes: 42 },
+    { title: '스톡피시 18 모바일 최적화', desc: '네이티브 앱 수준의 연산 속도를 위해 WebAssembly 멀티스레딩 지원 추가.', votes: 29 },
+    { title: '맞춤형 AI 피드백 음성 서비스', desc: '경기가 끝난 후 내 실수들을 오디오 브리핑으로 짚어주는 기능.', votes: 15 }
+  ]);
+
+  // Load proposals on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('speerchess_proposals');
+      if (saved) {
+        try { setProposals(JSON.parse(saved)); } catch (e) {}
+      }
+    }
+  }, []);
+
+  // Save proposals to localStorage
+  const saveProposals = (newProposals: { title: string; desc: string; votes: number }[]) => {
+    setProposals(newProposals);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('speerchess_proposals', JSON.stringify(newProposals));
+    }
+  };
+
+  // Chessle
+  const [chesslePuzzle, setChesslePuzzle] = useState<any | null>(null);
+  const [chessleCodeInput, setChessleCodeInput] = useState<string>('');
   
   // Settings values
   const [language, setLanguage] = useState<'ko' | 'en'>('ko');
@@ -441,7 +526,6 @@ export default function Home() {
   } | null>(null);
 
   // Chessle States
-  const [chesslePuzzle, setChesslePuzzle] = useState<any | null>(null);
   const [chessleMoves, setChessleMoves] = useState<string[]>([]);
   const [chessleAttempts, setChessleAttempts] = useState<{ moves: string[]; feedback: string[] }[]>([]);
   const [chessleAttemptCount, setChessleAttemptCount] = useState<number>(0);
@@ -974,7 +1058,7 @@ export default function Home() {
   // Initialize background review analyzer worker
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const worker = new Worker('/stockfish.js');
+    const worker = new Worker('/stockfish-18-lite-single.js');
     reviewWorkerRef.current = worker;
     
     worker.postMessage('uci');
@@ -1004,17 +1088,32 @@ export default function Home() {
             isMate = true;
           }
           
-          // Only update if it is a meaningful search depth
           const currentDepth = depthMatch ? parseInt(depthMatch[1], 10) : 0;
           if (currentDepth >= 4) {
-            // Convert coordinate PV to algebraic notation (SAN) using active FEN
-            const sanPv = uciPvToSan(fenRef.current, pv);
+            // Choose active FEN for SAN translation
+            const activeFenVal = activeTab === 'analyze'
+              ? (moveTreeRef.current[currentNodeIdRef.current]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')
+              : fenRef.current;
+            const sanPv = uciPvToSan(activeFenVal, pv);
+            
             tempLinesRef.current[multipv] = {
               multipv,
               score,
               isMate,
               pv: sanPv
             };
+
+            // Set engine best move arrow coord
+            if (multipv === 1 && pv) {
+              const firstMoveUci = pv.split(' ')[0];
+              if (firstMoveUci && firstMoveUci.length >= 4) {
+                setBestMoveArrow({
+                  from: firstMoveUci.slice(0, 2),
+                  to: firstMoveUci.slice(2, 4)
+                });
+              }
+            }
+
             const sortedLines = Object.values(tempLinesRef.current).sort((a, b) => a.multipv - b.multipv);
             setEngineLines(sortedLines);
           }
@@ -1028,17 +1127,98 @@ export default function Home() {
     };
   }, []);
 
-  // Trigger real-time Stockfish engine calculation when navigating FEN (Runs in both 감상모드 and 분석모드)
+  const activeAnalysisFen = useMemo(() => {
+    if (activeTab === 'analyze') {
+      return moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    }
+    return '';
+  }, [activeTab, moveTree, currentNodeId]);
+
+  // Keep refs in sync for Web Worker onmessage closure
+  const moveTreeRef = useRef(moveTree);
+  const currentNodeIdRef = useRef(currentNodeId);
   useEffect(() => {
-    if (!reviewWorkerRef.current || view !== 'REVIEW') return;
+    moveTreeRef.current = moveTree;
+    currentNodeIdRef.current = currentNodeId;
+  }, [moveTree, currentNodeId]);
+
+  // Trigger real-time Stockfish engine calculation when navigating FEN
+  useEffect(() => {
+    if (!reviewWorkerRef.current) return;
     
     setEngineLines([]);
+    setBestMoveArrow(null);
     tempLinesRef.current = {};
     
-    reviewWorkerRef.current.postMessage('stop');
-    reviewWorkerRef.current.postMessage(`position fen ${fen}`);
-    reviewWorkerRef.current.postMessage(`go depth ${analysisDepth}`);
-  }, [fen, view, analysisDepth]);
+    if (view === 'REVIEW') {
+      reviewWorkerRef.current.postMessage('stop');
+      reviewWorkerRef.current.postMessage('setoption name MultiPV value 3');
+      reviewWorkerRef.current.postMessage(`position fen ${fen}`);
+      reviewWorkerRef.current.postMessage(`go depth ${analysisDepth}`);
+    } else if (activeTab === 'analyze' && isAnalyzeEngineEnabled && activeAnalysisFen) {
+      reviewWorkerRef.current.postMessage('stop');
+      reviewWorkerRef.current.postMessage(`setoption name MultiPV value ${engineLinesCount}`);
+      reviewWorkerRef.current.postMessage(`position fen ${activeAnalysisFen}`);
+      reviewWorkerRef.current.postMessage(`go depth ${depth}`);
+    }
+  }, [fen, view, activeAnalysisFen, activeTab, isAnalyzeEngineEnabled, engineLinesCount, depth, analysisDepth]);
+
+  // Fetch opening book data from Lichess Explorer API
+  useEffect(() => {
+    if (activeTab !== 'analyze' || analyzeSubTab !== 'BOOK') return;
+    
+    const fetchOpeningData = async () => {
+      const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      setIsLoadingOpening(true);
+      setOpeningData(null);
+      
+      try {
+        const dbParam = explorerDb === 'masters' ? 'masters' : 'lichess';
+        const url = `https://explorer.lichess.ovh/${dbParam}?fen=${encodeURIComponent(activeFen)}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          setOpeningData(data);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsLoadingOpening(false);
+      }
+    };
+    
+    const debounce = setTimeout(fetchOpeningData, 300);
+    return () => clearTimeout(debounce);
+  }, [activeAnalysisFen, activeTab, analyzeSubTab, explorerDb]);
+
+  // Chess Clock tick mechanism (Runs in tenths of a second)
+  useEffect(() => {
+    if (!clockActive || !clockTurn) return;
+    
+    const interval = setInterval(() => {
+      if (clockTurn === 'w') {
+        setClockWhiteTime((prev) => {
+          if (prev <= 0.1) {
+            setClockActive(false);
+            setClockTurn(null);
+            return 0;
+          }
+          return Number((prev - 0.1).toFixed(1));
+        });
+      } else {
+        setClockBlackTime((prev) => {
+          if (prev <= 0.1) {
+            setClockActive(false);
+            setClockTurn(null);
+            return 0;
+          }
+          return Number((prev - 0.1).toFixed(1));
+        });
+      }
+    }, 100);
+    
+    return () => clearInterval(interval);
+  }, [clockActive, clockTurn]);
 
   // Auto-scroll move list to active move in Appreciation Mode (감상모드)
   useEffect(() => {
@@ -1540,9 +1720,1636 @@ export default function Home() {
     setPgn(SAMPLE_PGN_FULL);
   };
 
+  const disguisedPieces = {
+    wP: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#ffffff', border: '2px solid #000000', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    wN: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#ffffff', border: '2px solid #000000', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    wB: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#ffffff', border: '2px solid #000000', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    wR: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#ffffff', border: '2px solid #000000', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    wQ: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#ffffff', border: '2px solid #000000', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    wK: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#ffffff', border: '2px solid #000000', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    bP: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#2b2b2b', border: '2px solid #ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    bN: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#2b2b2b', border: '2px solid #ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    bB: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#2b2b2b', border: '2px solid #ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    bR: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#2b2b2b', border: '2px solid #ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    bQ: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#2b2b2b', border: '2px solid #ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />,
+    bK: ({ squareWidth }: any) => <div style={{ width: squareWidth * 0.45, height: squareWidth * 0.45, borderRadius: '50%', backgroundColor: '#2b2b2b', border: '2px solid #ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />
+  };
+
+  const getCustomPieces = () => {
+    if (pieceSet === 'disguised') {
+      return disguisedPieces;
+    }
+    if (pieceSet === 'blindfold') {
+      return {
+        wP: () => <div />, wN: () => <div />, wB: () => <div />, wR: () => <div />, wQ: () => <div />, wK: () => <div />,
+        bP: () => <div />, bN: () => <div />, bB: () => <div />, bR: () => <div />, bQ: () => <div />, bK: () => <div />
+      };
+    }
+    return undefined;
+  };
+
+  const getAnalyzeEvaluation = (): number => {
+    if (engineLines.length > 0) {
+      const topLine = engineLines[0];
+      const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const tempChess = new Chess(activeFen);
+      const isWhiteTurn = tempChess.turn() === 'w';
+      
+      let score = topLine.score;
+      if (topLine.isMate) {
+        score = topLine.score > 0 ? 10000 : -10000;
+      }
+      return isWhiteTurn ? score : -score;
+    }
+    return 0;
+  };
+
+  const evalToWinProb = (evalCp: number): number => {
+    return 0.5 + 0.5 * (2 / (1 + Math.exp(-0.00368208 * evalCp)) - 1);
+  };
+
+  const handleAnalyzePieceDrop = (args: { piece: any; sourceSquare: string; targetSquare: string | null }): boolean => {
+    const { piece, sourceSquare, targetSquare } = args;
+    if (!targetSquare) return false;
+    try {
+      const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const tempChess = new Chess(activeFen);
+      const moveResult = tempChess.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: piece[1]?.toLowerCase() ?? 'q',
+      });
+      
+      if (moveResult) {
+        const nextFen = tempChess.fen();
+        const currentNode = moveTree[currentNodeId];
+        const existingChildId = currentNode.children.find(cid => moveTree[cid]?.san === moveResult.san);
+        
+        if (existingChildId) {
+          setCurrentNodeId(existingChildId);
+        } else {
+          const newId = `node_${Math.random().toString(36).substring(2, 9)}`;
+          const newNode = {
+            id: newId,
+            san: moveResult.san,
+            from: moveResult.from,
+            to: moveResult.to,
+            fen: nextFen,
+            parentId: currentNodeId,
+            children: []
+          };
+          
+          setMoveTree(prev => ({
+            ...prev,
+            [currentNodeId]: {
+              ...prev[currentNodeId],
+              children: [...prev[currentNodeId].children, newId]
+            },
+            [newId]: newNode
+          }));
+          setCurrentNodeId(newId);
+        }
+        return true;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return false;
+  };
+
+  const renderMoveTree = (nodeId: string, isVariation: boolean = false): React.ReactNode[] => {
+    const node = moveTree[nodeId];
+    if (!node) return [];
+    
+    const elements: React.ReactNode[] = [];
+    if (nodeId !== 'root') {
+      const isWhite = node.fen.split(' ')[1] === 'b';
+      const parts = node.fen.split(' ');
+      const fullmove = parseInt(parts[5], 10);
+      const moveNum = isWhite ? fullmove - 1 : fullmove;
+      
+      let label = '';
+      if (isWhite) {
+        label = `${moveNum}. ${node.san}`;
+      } else if (isVariation) {
+        label = `${moveNum}... ${node.san}`;
+      } else {
+        label = `${node.san}`;
+      }
+
+      elements.push(
+        <span 
+          key={node.id} 
+          onClick={() => setCurrentNodeId(node.id)}
+          className={`cursor-pointer px-1 rounded hover:bg-stone-250 transition-colors font-bold text-xs ${
+            currentNodeId === node.id 
+              ? 'bg-blue-600 text-white shadow-sm' 
+              : (darkMode === 'dark' ? 'text-slate-300 hover:bg-stone-800' : 'text-slate-750 hover:bg-stone-150')
+          }`}
+        >
+          {label}
+        </span>
+      );
+    }
+
+    if (node.children.length === 0) return elements;
+
+    // First child is main line
+    const mainChildId = node.children[0];
+    elements.push(...renderMoveTree(mainChildId, false));
+
+    // Other children are variations
+    if (node.children.length > 1) {
+      for (let i = 1; i < node.children.length; i++) {
+        const varChildId = node.children[i];
+        elements.push(
+          <span key={`var-wrap-${varChildId}`} className="text-slate-400 text-[10px] italic mx-0.5">
+            ({' '}
+            {renderMoveTree(varChildId, true)}
+            {' '})
+          </span>
+        );
+      }
+    }
+
+    return elements;
+  };
+
   const themeColors = boardThemes[boardTheme];
 
-  // --- Views ---
+  const renderHomeTab = () => {
+    const quoteIndex = Math.floor(Math.random() * quotes.length);
+    const selectedQuote = quotes[quoteIndex];
+    const isDark = darkMode === 'dark';
+    return (
+      <div className={`flex-1 flex flex-col p-5 overflow-y-auto no-scrollbar justify-between transition-all duration-300 ${
+        isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+      }`}>
+        <div className="space-y-6 pt-4">
+          <div className="flex items-center justify-between border-b pb-4 border-stone-850">
+            <div className="flex items-center gap-2">
+              <SpeerLogo className={`w-7 h-7 ${isDark ? 'text-slate-100' : 'text-slate-800'}`} />
+              <span className="font-black text-xl tracking-tight">speerchess</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => { setActiveTab('more'); setMoreSubView('settings'); }}
+                className={`p-1.5 rounded-xl cursor-pointer transition-colors ${
+                  isDark ? 'hover:bg-stone-900 text-slate-300' : 'hover:bg-stone-100 text-slate-600'
+                }`}
+                title={language === 'ko' ? '설정' : 'Settings'}
+              >
+                <Settings size={18} />
+              </button>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                isDark ? 'bg-stone-800 text-slate-350' : 'bg-stone-200 text-slate-650'
+              }`}>
+                v1.2.0 (Lite)
+              </span>
+            </div>
+          </div>
+
+          <div className={`rounded-3xl p-6 relative overflow-hidden shadow-lg border ${
+            isDark 
+              ? 'bg-gradient-to-br from-stone-900 to-stone-950 border-stone-850 text-slate-150' 
+              : 'bg-gradient-to-br from-white to-stone-50 border-stone-200 text-slate-800'
+          }`}>
+            <div className="space-y-2 relative z-10">
+              <h1 className="text-2xl font-black tracking-tight leading-tight">
+                {language === 'ko' ? '체스 대국을 정교하게 분석해보세요' : 'Analyze your chess games with speed'}
+              </h1>
+              <p className={`text-xs font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'} max-w-[280px]`}>
+                {language === 'ko' ? 'Stockfish 18 Lite 엔진과 Lichess 오프닝 탐색기가 내장된 초고속 로컬 분석 플랫폼.' : 'Built-in Stockfish 18 Lite and Lichess database.'}
+              </p>
+            </div>
+            <div className="absolute right-4 bottom-2 opacity-10 shrink-0">
+              <SpeerLogo className="w-28 h-28" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <button 
+              onClick={() => { setActiveTab('review'); setView('INPUT'); }}
+              className={`p-4 rounded-2xl border text-left flex flex-col justify-between h-28 shadow-sm transition-all active:scale-95 cursor-pointer ${
+                isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500 w-fit">
+                <Play size={18} fill="currentColor" />
+              </div>
+              <div>
+                <div className="font-extrabold text-xs">{language === 'ko' ? '기보 리뷰/분석' : 'PGN Review'}</div>
+                <div className={`text-[9px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? 'PGN 또는 리체스 주소 분석' : 'Analyze game or Lichess URL'}</div>
+              </div>
+            </button>
+
+            <button 
+              onClick={() => { setActiveTab('analyze'); }}
+              className={`p-4 rounded-2xl border text-left flex flex-col justify-between h-28 shadow-sm transition-all active:scale-95 cursor-pointer ${
+                isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <div className="p-2 rounded-xl bg-green-500/10 text-green-500 w-fit">
+                <GitBranch size={18} />
+              </div>
+              <div>
+                <div className="font-extrabold text-xs">{language === 'ko' ? '자유 분석판' : 'Analyze Board'}</div>
+                <div className={`text-[9px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? '자유롭게 두며 실시간 분석' : 'Play freely and analyze'}</div>
+              </div>
+            </button>
+
+            <button 
+              onClick={() => { setActiveTab('chessle'); setChesslePuzzle(null); }}
+              className={`p-4 rounded-2xl border text-left flex flex-col justify-between h-28 shadow-sm transition-all active:scale-95 cursor-pointer ${
+                isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <div className="p-2 rounded-xl bg-yellow-500/10 text-yellow-500 w-fit">
+                <Award size={18} />
+              </div>
+              <div>
+                <div className="font-extrabold text-xs">{language === 'ko' ? '오늘의 체슬' : 'Chessle'}</div>
+                <div className={`text-[9px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? '오프닝 5수 맞추기 퀴즈' : 'Opening puzzle game'}</div>
+              </div>
+            </button>
+
+            <button 
+              onClick={() => { setActiveTab('more'); setMoreSubView('clock'); }}
+              className={`p-4 rounded-2xl border text-left flex flex-col justify-between h-28 shadow-sm transition-all active:scale-95 cursor-pointer ${
+                isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-500 w-fit">
+                <Clock size={18} />
+              </div>
+              <div>
+                <div className="font-extrabold text-xs">{language === 'ko' ? '체스 시계' : 'Chess Clock'}</div>
+                <div className={`text-[9px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? '오프라인 대국 타이머' : 'Timer for offline matches'}</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div className={`p-4 rounded-2xl border border-dashed text-center italic text-[11px] font-medium leading-relaxed my-4 ${
+          isDark ? 'bg-stone-950 border-stone-800 text-slate-400' : 'bg-stone-50 border-stone-200 text-slate-600'
+        }`}>
+          "{selectedQuote}"
+        </div>
+      </div>
+    );
+  };
+
+  const renderChessClock = () => {
+    const isDark = darkMode === 'dark';
+    
+    const presets = [
+      { name: '1+0 (Bullet)', base: 60, inc: 0 },
+      { name: '3+2 (Blitz)', base: 180, inc: 2 },
+      { name: '5+0 (Blitz)', base: 300, inc: 0 },
+      { name: '10+5 (Rapid)', base: 600, inc: 5 },
+    ];
+    
+    const formatClockTime = (timeInSeconds: number) => {
+      const minutes = Math.floor(timeInSeconds / 60);
+      const seconds = Math.floor(timeInSeconds % 60);
+      const tenths = Math.round((timeInSeconds % 1) * 10);
+      
+      const minStr = String(minutes).padStart(2, '0');
+      const secStr = String(seconds).padStart(2, '0');
+      
+      if (timeInSeconds < 10 && timeInSeconds > 0) {
+        return `${minutes}:${secStr}.${tenths}`;
+      }
+      return `${minStr}:${secStr}`;
+    };
+    
+    const handleClockClick = (turn: 'w' | 'b') => {
+      if (!clockActive) {
+        setClockActive(true);
+        setClockTurn(turn === 'w' ? 'b' : 'w');
+        return;
+      }
+      if (clockTurn !== turn) return;
+      
+      if (turn === 'w') {
+        setClockWhiteTime(prev => prev + clockIncrement);
+        setClockTurn('b');
+      } else {
+        setClockBlackTime(prev => prev + clockIncrement);
+        setClockTurn('w');
+      }
+    };
+    
+    const isWhiteTurn = clockTurn === 'w';
+    const isBlackTurn = clockTurn === 'b';
+    
+    if (clockTurn === null) {
+      return (
+        <div className={`flex-1 flex flex-col p-5 overflow-y-auto justify-between ${
+          isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+        }`}>
+          <div className="space-y-6 pt-4">
+            <div className="flex items-center gap-2 border-b pb-4 border-stone-850">
+              <button onClick={() => setMoreSubView('menu')} className="p-1 hover:bg-stone-800 rounded-full text-slate-500">
+                <ChevronLeft size={20} />
+              </button>
+              <h3 className="font-black text-sm uppercase tracking-widest">{language === 'ko' ? '체스 시계 설정' : 'Chess Clock Setup'}</h3>
+            </div>
+            
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">{language === 'ko' ? '프리셋 선택' : 'Choose Preset'}</label>
+              <div className="grid grid-cols-2 gap-3">
+                {presets.map((p, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setClockBaseTime(p.base);
+                      setClockIncrement(p.inc);
+                      setClockWhiteTime(p.base);
+                      setClockBlackTime(p.base);
+                    }}
+                    className={`p-3 rounded-xl border text-center font-extrabold text-xs transition-all active:scale-95 cursor-pointer ${
+                      clockBaseTime === p.base && clockIncrement === p.inc
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                        : (isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850 text-slate-350' : 'bg-white border-stone-250 hover:bg-stone-50 text-slate-700')
+                    }`}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+              
+              <div className="space-y-3 pt-3 border-t border-stone-805">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">{language === 'ko' ? '직접 입력' : 'Custom Setting'}</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-bold text-slate-500 block">{language === 'ko' ? '기본 시간 (분)' : 'Base Time (min)'}</span>
+                    <input 
+                      type="number"
+                      min={1}
+                      max={180}
+                      value={Math.round(clockBaseTime / 60)}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val) && val > 0) {
+                          setClockBaseTime(val * 60);
+                          setClockWhiteTime(val * 60);
+                          setClockBlackTime(val * 60);
+                        }
+                      }}
+                      className={`w-full p-2.5 rounded-xl border font-bold text-center text-xs ${
+                        isDark ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-200 text-slate-800'
+                      }`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-bold text-slate-500 block">{language === 'ko' ? '추가 시간 (초)' : 'Increment (sec)'}</span>
+                    <input 
+                      type="number"
+                      min={0}
+                      max={60}
+                      value={clockIncrement}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val) && val >= 0) {
+                          setClockIncrement(val);
+                        }
+                      }}
+                      className={`w-full p-2.5 rounded-xl border font-bold text-center text-xs ${
+                        isDark ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-200 text-slate-800'
+                      }`}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <button 
+            onClick={() => {
+              setClockWhiteTime(clockBaseTime);
+              setClockBlackTime(clockBaseTime);
+              setClockTurn('w');
+              setClockActive(false);
+            }}
+            className="w-full bg-slate-800 hover:bg-slate-750 text-white font-black py-4 rounded-2xl text-sm transition-all shadow-md active:scale-95 cursor-pointer mt-8"
+          >
+            {language === 'ko' ? '시작하기' : 'Start'}
+          </button>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden bg-stone-950 text-white relative h-full">
+        <button
+          onClick={() => handleClockClick('b')}
+          className={`flex-1 w-full flex items-center justify-center transition-all cursor-pointer ${
+            isBlackTurn 
+              ? 'bg-blue-650 text-white shadow-inner animate-pulse' 
+              : 'bg-stone-900 text-stone-400'
+          }`}
+          style={{ transform: 'rotate(180deg)' }}
+        >
+          <div className="text-5xl font-mono font-black tracking-widest">{formatClockTime(clockBlackTime)}</div>
+        </button>
+        
+        <div className="h-14 shrink-0 bg-stone-950 border-y border-stone-800 flex items-center justify-around px-4 z-10">
+          <button 
+            onClick={() => setClockActive(prev => !prev)}
+            className="px-4 py-1.5 rounded-lg bg-stone-900 border border-stone-850 hover:bg-stone-800 font-bold text-xs cursor-pointer"
+          >
+            {clockActive ? (language === 'ko' ? '일시정지' : 'Pause') : (language === 'ko' ? '재개' : 'Resume')}
+          </button>
+          
+          <button 
+            onClick={() => {
+              setClockTurn(null);
+              setClockActive(false);
+            }}
+            className="px-4 py-1.5 rounded-lg bg-red-900/40 border border-red-800/40 hover:bg-red-900/60 font-bold text-xs text-red-300 cursor-pointer"
+          >
+            {language === 'ko' ? '재설정' : 'Reset'}
+          </button>
+        </div>
+        
+        <button
+          onClick={() => handleClockClick('w')}
+          className={`flex-1 w-full flex items-center justify-center transition-all cursor-pointer ${
+            isWhiteTurn 
+              ? 'bg-blue-650 text-white shadow-inner animate-pulse' 
+              : 'bg-stone-900 text-stone-400'
+          }`}
+        >
+          <div className="text-5xl font-mono font-black tracking-widest">{formatClockTime(clockWhiteTime)}</div>
+        </button>
+      </div>
+    );
+  };
+
+  const renderMoreTab = () => {
+    const isDark = darkMode === 'dark';
+    
+    const renderSubHeader = (title: string) => (
+      <div className="flex items-center gap-2 border-b pb-4 border-stone-850 shrink-0">
+        <button onClick={() => setMoreSubView('menu')} className={`p-1 rounded-full ${isDark ? 'hover:bg-stone-850 text-slate-400' : 'hover:bg-stone-150 text-slate-500'}`}>
+          <ChevronLeft size={20} />
+        </button>
+        <h3 className="font-black text-sm uppercase tracking-widest">{title}</h3>
+      </div>
+    );
+
+    if (moreSubView === 'menu') {
+      return (
+        <div className={`flex-1 flex flex-col p-5 overflow-y-auto no-scrollbar justify-between ${
+          isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+        }`}>
+          <div className="space-y-6 pt-4">
+            <div className="flex items-center gap-2 border-b pb-4 border-stone-850">
+              <SpeerLogo className={`w-6 h-6 ${isDark ? 'text-slate-100' : 'text-slate-800'}`} />
+              <h3 className="font-black text-sm uppercase tracking-widest">{language === 'ko' ? '더보기 및 지원' : 'More & Support'}</h3>
+            </div>
+            
+            {/* Category: Features */}
+            <div className="space-y-2">
+              <span className={`text-[10px] font-black uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                {language === 'ko' ? '주요 기능' : 'Features'}
+              </span>
+              <div className="space-y-1">
+                <button 
+                  onClick={() => setMoreSubView('brilliant')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">✨ {language === 'ko' ? '탁월 저장소' : 'Brilliant Repository'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('blunder')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">💀 {language === 'ko' ? '블런더 저장소' : 'Blunder Repository'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('clock')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">⏱️ {language === 'ko' ? '체스 시계' : 'Chess Clock'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('ocr')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">📷 {language === 'ko' ? 'Chess OCR (기보 판독)' : 'Chess OCR'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('settings')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">⚙️ {language === 'ko' ? '설정 페이지' : 'Settings'}</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Category: Support */}
+            <div className="space-y-2 pt-2">
+              <span className={`text-[10px] font-black uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                {language === 'ko' ? '고객 지원' : 'Support'}
+              </span>
+              <div className="space-y-1">
+                <button 
+                  onClick={() => setMoreSubView('faq')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">❓ {language === 'ko' ? '자주 묻는 질문 (FAQ)' : 'FAQ'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('proposal')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">💡 {language === 'ko' ? '추가 기능 제안' : 'Suggest Features'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('terms')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">📄 {language === 'ko' ? '서비스 이용 약관' : 'Terms of Service'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('privacy')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">🔒 {language === 'ko' ? '개인정보 처리방침' : 'Privacy Policy'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('credits')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">💳 {language === 'ko' ? '오픈소스 크레딧' : 'Credits'}</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Category: Speerchess */}
+            <div className="space-y-2 pt-2">
+              <span className={`text-[10px] font-black uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                speerchess
+              </span>
+              <div className="space-y-1">
+                <button 
+                  onClick={() => setMoreSubView('blog')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">📰 {language === 'ko' ? '블로그 및 업데이트' : 'Blog & Updates'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('about')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">ℹ️ {language === 'ko' ? '서비스 소개 (About)' : 'About Speerchess'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => setMoreSubView('feedback')}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">✉️ {language === 'ko' ? '문의 및 피드백' : 'Contact & Feedback'}</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div className="text-center text-[10px] text-slate-500 font-bold py-4">
+            speerchess &copy; 2026. All rights reserved.
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`flex-1 flex flex-col p-5 overflow-y-auto no-scrollbar ${
+        isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+      }`}>
+        {/* Settings View */}
+        {moreSubView === 'settings' && (
+          <div className="space-y-5">
+            {renderSubHeader(language === 'ko' ? '설정 페이지' : 'Settings')}
+            
+            {/* 1. Language Setting */}
+            <div className="space-y-2">
+              <span className={`text-[10px] font-black uppercase tracking-wider block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? '1. 언어 설정' : '1. Language Settings'}</span>
+              <div className={`grid grid-cols-2 gap-2 p-1 rounded-xl border ${isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-stone-100 border-stone-250'}`}>
+                <button onClick={() => setLanguage('ko')} className={`py-2 rounded-lg font-bold text-xs cursor-pointer ${language === 'ko' ? 'bg-blue-600 text-white shadow-sm' : (isDark ? 'text-slate-400' : 'text-slate-600')}`}>한국어</button>
+                <button onClick={() => setLanguage('en')} className={`py-2 rounded-lg font-bold text-xs cursor-pointer ${language === 'en' ? 'bg-blue-600 text-white shadow-sm' : (isDark ? 'text-slate-400' : 'text-slate-600')}`}>English</button>
+              </div>
+            </div>
+
+            {/* 2. Dark/Light Mode */}
+            <div className="space-y-2">
+              <span className={`text-[10px] font-black uppercase tracking-wider block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? '2. 사이트 배경 테마' : '2. Background Theme'}</span>
+              <div className={`grid grid-cols-2 gap-2 p-1 rounded-xl border ${isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-stone-100 border-stone-250'}`}>
+                <button onClick={() => setDarkMode('light')} className={`py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer ${darkMode === 'light' ? 'bg-blue-600 text-white shadow-sm' : (isDark ? 'text-slate-400' : 'text-slate-600')}`}><Sun size={12} /> {language === 'ko' ? '라이트' : 'Light'}</button>
+                <button onClick={() => setDarkMode('dark')} className={`py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer ${darkMode === 'dark' ? 'bg-blue-600 text-white shadow-sm' : (isDark ? 'text-slate-400' : 'text-slate-600')}`}><Moon size={12} /> {language === 'ko' ? '다크' : 'Dark'}</button>
+              </div>
+            </div>
+
+            {/* 3. Board & Piece Custom Theme */}
+            <div className="space-y-2.5">
+              <span className={`text-[10px] font-black uppercase tracking-wider block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? '3. 보드 및 기물 테마' : '3. Board & Piece Theme'}</span>
+              <div className={`space-y-3 p-4 rounded-2xl border text-xs ${isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-stone-100 border-stone-250'}`}>
+                {/* Board Theme */}
+                <div className="space-y-1">
+                  <span className="text-[9px] font-bold text-slate-500 block">{language === 'ko' ? '체스 보드 색상' : 'Board Color'}</span>
+                  <div className="grid grid-cols-3 gap-1">
+                    {Object.keys(boardThemes).map((key) => (
+                      <button 
+                        key={key}
+                        onClick={() => setBoardTheme(key as any)}
+                        className={`py-1.5 rounded-lg font-extrabold text-[10px] cursor-pointer ${boardTheme === key ? 'bg-blue-600 text-white shadow-sm' : (isDark ? 'bg-stone-800 text-slate-350 hover:bg-stone-750' : 'bg-stone-200 text-slate-700 hover:bg-stone-250')}`}
+                      >
+                        {boardThemes[key as keyof typeof boardThemes].name.replace('스피어 ', '')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Piece Set */}
+                <div className="space-y-1">
+                  <span className="text-[9px] font-bold text-slate-500 block">{language === 'ko' ? '체스 기물 세트' : 'Piece Set'}</span>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button onClick={() => setPieceSet('cburnett')} className={`py-1.5 rounded-lg font-extrabold text-[10px] cursor-pointer ${pieceSet === 'cburnett' ? 'bg-blue-600 text-white shadow-sm' : (isDark ? 'bg-stone-800 text-slate-350 hover:bg-stone-750' : 'bg-stone-200 text-slate-700 hover:bg-stone-250')}`}>{language === 'ko' ? '기본' : 'Standard'}</button>
+                    <button onClick={() => setPieceSet('disguised')} className={`py-1.5 rounded-lg font-extrabold text-[10px] cursor-pointer ${pieceSet === 'disguised' ? 'bg-blue-600 text-white shadow-sm' : (isDark ? 'bg-stone-800 text-slate-350 hover:bg-stone-750' : 'bg-stone-200 text-slate-700 hover:bg-stone-250')}`}>{language === 'ko' ? '가면기물' : 'Disguised'}</button>
+                    <button onClick={() => setPieceSet('blindfold')} className={`py-1.5 rounded-lg font-extrabold text-[10px] cursor-pointer ${pieceSet === 'blindfold' ? 'bg-blue-600 text-white shadow-sm' : (isDark ? 'bg-stone-800 text-slate-350 hover:bg-stone-750' : 'bg-stone-200 text-slate-700 hover:bg-stone-250')}`}>{language === 'ko' ? '눈가림' : 'Blindfold'}</button>
+                  </div>
+                </div>
+
+                {/* Arrow Color */}
+                <div className="space-y-1">
+                  <span className="text-[9px] font-bold text-slate-500 block">{language === 'ko' ? '추천수 화살표 색상' : 'Arrow Color'}</span>
+                  <div className="flex gap-2.5">
+                    {['#10b981', '#ef4444', '#3b82f6', '#eab308'].map(color => (
+                      <button 
+                        key={color}
+                        onClick={() => setArrowColor(color)}
+                        className={`w-6 h-6 rounded-full border-2 transition-all cursor-pointer ${
+                          arrowColor === color ? 'border-white scale-110 shadow-md' : 'border-stone-800 hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Coordinates toggle */}
+                <div className="flex justify-between items-center pt-1.5">
+                  <span className={`text-[10px] font-bold ${isDark ? 'text-slate-350' : 'text-slate-700'}`}>{language === 'ko' ? '보드 외곽 좌표 표시 (a-h, 1-8)' : 'Show Board Coordinates'}</span>
+                  <button
+                    onClick={() => setShowCoordinates(prev => !prev)}
+                    className={`w-8 h-4 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
+                      showCoordinates ? 'bg-blue-600 justify-end' : 'bg-stone-800 justify-start'
+                    }`}
+                  >
+                    <div className="w-3.5 h-3.5 rounded-full bg-white shadow-sm" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Chessboard settings */}
+            <div className="space-y-2">
+              <span className={`text-[10px] font-black uppercase tracking-wider block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? '4. 체스판 세부 설정' : '4. Chessboard Settings'}</span>
+              <div className={`p-4 rounded-2xl border text-xs space-y-3 ${isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-stone-100 border-stone-250'}`}>
+                <div className="flex justify-between items-center">
+                  <span className={`text-[10px] font-bold ${isDark ? 'text-slate-350' : 'text-slate-700'}`}>{language === 'ko' ? '기물 착지점 표시 (이동 가능한 칸)' : 'Show Move Destinations'}</span>
+                  <button onClick={() => setShowMoveDestinations(prev => !prev)} className={`w-8 h-4 rounded-full p-0.5 flex items-center cursor-pointer ${showMoveDestinations ? 'bg-blue-600 justify-end' : 'bg-stone-800 justify-start'}`}><div className="w-3.5 h-3.5 rounded-full bg-white shadow-sm" /></button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className={`text-[10px] font-bold ${isDark ? 'text-slate-350' : 'text-slate-700'}`}>{language === 'ko' ? '보드 하이라이트 (마지막 수 경로)' : 'Show Board Highlights'}</span>
+                  <button onClick={() => setShowBoardHighlights(prev => !prev)} className={`w-8 h-4 rounded-full p-0.5 flex items-center cursor-pointer ${showBoardHighlights ? 'bg-blue-600 justify-end' : 'bg-stone-800 justify-start'}`}><div className="w-3.5 h-3.5 rounded-full bg-white shadow-sm" /></button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className={`text-[10px] font-bold ${isDark ? 'text-slate-350' : 'text-slate-700'}`}>{language === 'ko' ? '기물 가치 점수차 표시 (+/-)' : 'Show Material Difference'}</span>
+                  <button onClick={() => setShowMaterialDifference(prev => !prev)} className={`w-8 h-4 rounded-full p-0.5 flex items-center cursor-pointer ${showMaterialDifference ? 'bg-blue-600 justify-end' : 'bg-stone-800 justify-start'}`}><div className="w-3.5 h-3.5 rounded-full bg-white shadow-sm" /></button>
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Engine settings */}
+            <div className="space-y-2">
+              <span className={`text-[10px] font-black uppercase tracking-wider block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{language === 'ko' ? '5. 분석 엔진 설정' : '5. Engine Settings'}</span>
+              <div className={`p-4 rounded-2xl border text-xs space-y-3 ${isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-stone-100 border-stone-250'}`}>
+                <div className="flex justify-between items-center">
+                  <span className={`text-[10px] font-bold ${isDark ? 'text-slate-350' : 'text-slate-700'}`}>{language === 'ko' ? '엔진 종류' : 'Engine Type'}</span>
+                  <span className="font-extrabold text-blue-500 text-[10px]">Stockfish 18 Lite</span>
+                </div>
+                <div className="space-y-1 pt-1.5">
+                  <div className="flex justify-between text-[9px] font-bold text-slate-500">
+                    <span>{language === 'ko' ? '엔진 분석 깊이 (Depth)' : 'Max Calculation Depth'}</span>
+                    <span className={`font-extrabold ${isDark ? 'text-white' : 'text-slate-800'}`}>{depth} Ply</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min={12}
+                    max={20}
+                    step={2}
+                    value={depth}
+                    onChange={(e) => setDepth(parseInt(e.target.value, 10) as any)}
+                    className="w-full h-1 bg-stone-850 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* OCR View */}
+        {moreSubView === 'ocr' && (
+          <div className="space-y-5">
+            {renderSubHeader('Chess OCR')}
+            <div className="border-2 border-dashed border-stone-800 rounded-2xl p-8 text-center space-y-4 my-6 bg-stone-900/10">
+              <div className="text-4xl">📷</div>
+              <div className="space-y-1">
+                <span className="font-extrabold text-xs block">{language === 'ko' ? '기보 이미지 업로드' : 'Upload Chessboard Image'}</span>
+                <span className="text-[10px] text-slate-500 block">{language === 'ko' ? '사진 속 체스판 국면을 스캔하여 복사합니다.' : 'Scans chessboard layout from photo'}</span>
+              </div>
+              <input type="file" disabled className="hidden" id="ocr-upload" />
+              <label htmlFor="ocr-upload" className="inline-block bg-blue-600/30 text-blue-400 font-bold px-4 py-2 rounded-xl text-xs cursor-not-allowed select-none">
+                {language === 'ko' ? '준비 중...' : 'Coming Soon...'}
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed font-semibold italic text-center">
+              "{language === 'ko' ? '체스 판 이미지 판독(OCR) 기능 준비 중입니다. 휴대폰으로 촬영한 체스판 배치 이미지를 분석 기보 FEN으로 즉시 정적 인코딩하는 기능이 제공될 예정입니다!' : 'Chess OCR module is in preparation. Soon you will be able to capture real chessboards and import them!'}"
+            </p>
+          </div>
+        )}
+
+        {/* FAQ View */}
+        {moreSubView === 'faq' && (
+          <div className="space-y-4">
+            {renderSubHeader('FAQ')}
+            <div className="space-y-2 py-4">
+              {[
+                { q: 'speerchess는 어떤 서비스인가요?', a: '웹 브라우저에서 서버 없이 초고속 실시간 체스 기보 분석과 GIF 복기본 내보내기, 단축 주소 공유 서비스를 제공하는 익명 체스 도구입니다.' },
+                { q: '자유 분석판은 어떻게 작동하나요?', a: '백그라운드에서 구동되는 Stockfish 18 Lite WASM 워커가 실시간 최선의 수를 화살표와 수순으로 평가지와 함께 즉시 연산해줍니다.' },
+                { q: '체슬(Chessle)의 힌트는 무엇인가요?', a: '맞추기 어려운 오프닝 수순을 위해 전체 기보가 끝난 최종 국면(FEN) 및 7번째 수(13, 14반수)를 힌트로 보여줍니다.' }
+              ].map((item, idx) => (
+                <div key={idx} className={`p-3 border rounded-xl space-y-1.5 ${isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-white border-stone-200'}`}>
+                  <span className="font-extrabold text-xs text-blue-500 block">Q. {item.q}</span>
+                  <span className={`text-[11px] leading-relaxed font-medium block ${isDark ? 'text-slate-350' : 'text-slate-600'}`}>A. {item.a}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Proposal View */}
+        {moreSubView === 'proposal' && (
+          <div className="space-y-4">
+            {renderSubHeader(language === 'ko' ? '기능 제안 피드' : 'Feature Proposal Feed')}
+            
+            {/* Write Proposal Form */}
+            <div className={`p-4 rounded-2xl border text-xs space-y-3 ${
+              isDark ? 'bg-stone-900/30 border-stone-850' : 'bg-stone-100 border-stone-250'
+            }`}>
+              <span className={`font-black text-[10px] uppercase tracking-wider block ${
+                isDark ? 'text-slate-400' : 'text-slate-500'
+              }`}>
+                {language === 'ko' ? '새 기능 제안하기' : 'Suggest New Feature'}
+              </span>
+              <div className="space-y-1">
+                <input 
+                  type="text"
+                  placeholder={language === 'ko' ? '제안 제목 (예: 분석 내역 로컬 캐싱)' : 'Title...'}
+                  value={newProposalTitle}
+                  onChange={(e) => setNewProposalTitle(e.target.value)}
+                  className={`w-full p-2.5 rounded-xl border text-xs font-bold ${
+                    isDark ? 'bg-stone-950 border-stone-800 text-white' : 'bg-white border-stone-250 text-slate-800'
+                  }`}
+                />
+              </div>
+              <div className="space-y-1">
+                <textarea 
+                  rows={2}
+                  placeholder={language === 'ko' ? '제안할 상세 내용을 입력해주세요.' : 'Description...'}
+                  value={newProposalDesc}
+                  onChange={(e) => setNewProposalDesc(e.target.value)}
+                  className={`w-full p-2.5 rounded-xl border text-xs font-bold leading-relaxed ${
+                    isDark ? 'bg-stone-950 border-stone-800 text-white' : 'bg-white border-stone-250 text-slate-800'
+                  }`}
+                />
+              </div>
+              <button 
+                onClick={() => {
+                  const t = newProposalTitle.trim();
+                  const d = newProposalDesc.trim();
+                  if (!t || !d) {
+                    alert(language === 'ko' ? '제목과 설명을 모두 입력해주세요.' : 'Please enter title and description.');
+                    return;
+                  }
+                  const updated = [...proposals, { title: t, desc: d, votes: 1 }];
+                  saveProposals(updated);
+                  setNewProposalTitle('');
+                  setNewProposalDesc('');
+                  alert(language === 'ko' ? '성공적으로 제안되었습니다!' : 'Proposal added!');
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+              >
+                {language === 'ko' ? '제안 등록' : 'Submit Proposal'}
+              </button>
+            </div>
+
+            <div className="space-y-3 py-2">
+              {proposals.map((p, idx) => (
+                <div key={idx} className={`p-3.5 border rounded-2xl flex justify-between items-center ${
+                  isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-white border-stone-200'
+                }`}>
+                  <div className="space-y-1 flex-1 pr-3">
+                    <span className={`font-extrabold text-xs block ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{p.title}</span>
+                    <span className={`text-[10px] leading-relaxed block font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{p.desc}</span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      const updated = proposals.map((item, i) => i === idx ? { ...item, votes: item.votes + 1 } : item);
+                      saveProposals(updated);
+                    }}
+                    className="p-2 rounded-xl bg-blue-600/10 text-blue-400 font-extrabold text-[10px] shrink-0 border border-blue-500/20 active:scale-95 transition-all cursor-pointer"
+                  >
+                    👍 {p.votes}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Terms View */}
+        {moreSubView === 'terms' && (
+          <div className="space-y-4">
+            {renderSubHeader(language === 'ko' ? '서비스 약관' : 'Terms of Service')}
+            <div className="text-[11px] text-slate-400 space-y-3 py-3 leading-relaxed font-medium">
+              <p className="font-bold text-slate-200">1. 개요</p>
+              <p>speerchess는 사용자의 로컬 자원을 사용하는 클라이언트 기반 체스 도구입니다. 회원 가입 없이 누구나 무상으로 이용할 수 있습니다.</p>
+              <p className="font-bold text-slate-200">2. 공유 기능 정책</p>
+              <p>사용자가 공유를 수락한 기보와 그 가공 텍스트는 클라우드 백업 목적의 데이터베이스에 익명 색인 보관될 수 있으며, 공개적 주소로 공유될 수 있습니다.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Privacy View */}
+        {moreSubView === 'privacy' && (
+          <div className="space-y-4">
+            {renderSubHeader(language === 'ko' ? '개인정보 처리방침' : 'Privacy Policy')}
+            <div className="text-[11px] text-slate-400 space-y-3 py-3 leading-relaxed font-medium">
+              <p className="font-bold text-slate-200">1. 개인 정보 수집 없음</p>
+              <p>본 사이트는 어떤 경우에도 이메일, 이름, 연락처 등의 개인 인적 정보를 직접적으로 요구하거나 데이터베이스에 색인하여 보관하지 않습니다.</p>
+              <p className="font-bold text-slate-200">2. 로컬 브라우저 저장소</p>
+              <p>사용자의 테마 선택, 언어 설정 등 사이트 내 인터페이스 보정을 위한 최소 기여도는 LocalStorage를 이용해 유저의 기기 로컬 단독으로만 캐싱됩니다.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Credits View */}
+        {moreSubView === 'credits' && (
+          <div className="space-y-4">
+            {renderSubHeader('Credits')}
+            <div className="text-[11px] text-slate-400 space-y-3 py-3 font-medium">
+              <p className="font-bold text-slate-200">Open Source & APIs</p>
+              <ul className="list-disc pl-5 space-y-1 text-slate-400 text-xs">
+                <li><b>Stockfish Chess Engine</b>: GPL License</li>
+                <li><b>react-chessboard</b>: MIT License</li>
+                <li><b>chess.js</b>: BSD 2-Clause License</li>
+                <li><b>Lichess Openings Explorer API</b>: Public statistical API</li>
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {/* Blog View */}
+        {moreSubView === 'blog' && (
+          <div className="space-y-4">
+            {renderSubHeader(language === 'ko' ? '업데이트 내역' : 'Updates Log')}
+            <div className="space-y-3 py-2">
+              {[
+                { date: '2026.06.27', title: '자유 분석판 & 체스 시계 탑재', desc: '리체스 데이터베이스와 연계된 오프닝 탐색기와 대국용 체스 시계를 추가했습니다.' },
+                { date: '2026.06.24', title: '스톡피시 18 라이트 병렬 풀링', desc: 'COOP/COEP 헤더 제약 없이 하드웨어에 기반한 2~4코어 다중 연산을 적용해 3배 빠른 분석률을 이룩했습니다.' }
+              ].map((b, idx) => (
+                <div key={idx} className={`p-3 border rounded-xl space-y-1 ${isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-white border-stone-200'}`}>
+                  <span className="text-[9px] font-black text-slate-500 block">{b.date}</span>
+                  <span className={`font-extrabold text-xs block ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{b.title}</span>
+                  <span className={`text-[10px] leading-relaxed block font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{b.desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* About View */}
+        {moreSubView === 'about' && (
+          <div className="space-y-4">
+            {renderSubHeader('About')}
+            <div className="text-[11px] text-slate-400 space-y-3 py-3 leading-relaxed font-medium">
+              <p>speerchess는 로컬 컴퓨터 및 모바일 브라우저 환경에서 실시간 기보 연산 성능을 극한까지 끌어올리는 혁신적인 체스 헬퍼 플랫폼입니다.</p>
+              <p>서버 통신 비용 없이 Web Worker 다중 스레드로 Stockfish 18 Lite를 엣지 연동함으로써 복잡한 게임의 정확도를 묘수와 블런더 단위로 선명하게 추적할 수 있습니다.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback View */}
+        {moreSubView === 'feedback' && (
+          <div className="space-y-4">
+            {renderSubHeader(language === 'ko' ? '의견 및 문의' : 'Feedback & Contact')}
+            <div className="space-y-4 pt-2">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 block">{language === 'ko' ? '만족도 평점' : 'Rating'}</span>
+                <div className="flex gap-2 text-yellow-500 text-lg">
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button key={star} onClick={() => setFeedbackRating(star)} className="cursor-pointer">
+                      {feedbackRating >= star ? '★' : '☆'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 block">{language === 'ko' ? '상세 내용' : 'Details'}</span>
+                <textarea 
+                  rows={4}
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder={language === 'ko' ? '건의할 내용이나 건의사항을 남겨주세요.' : 'Type your suggestions here...'}
+                  className={`w-full p-3 rounded-xl border text-xs font-bold leading-relaxed ${
+                    isDark ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-200 text-slate-800'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 block">
+                  {language === 'ko' ? '답변받을 이메일 주소 (선택사항)' : 'Email Address for Reply (Optional)'}
+                </span>
+                <input 
+                  type="email"
+                  value={feedbackEmail}
+                  onChange={(e) => setFeedbackEmail(e.target.value)}
+                  placeholder={language === 'ko' ? 'example@email.com' : 'example@email.com'}
+                  className={`w-full p-3 rounded-xl border text-xs font-bold ${
+                    isDark ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-200 text-slate-800'
+                  }`}
+                />
+              </div>
+
+              <button 
+                onClick={() => {
+                  alert(language === 'ko' ? '소중한 피드백이 전송되었습니다. 감사합니다!' : 'Feedback submitted. Thank you!');
+                  setFeedbackText('');
+                  setFeedbackEmail('');
+                  setMoreSubView('menu');
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold py-3 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+              >
+                {language === 'ko' ? '의견 전송하기' : 'Send Feedback'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Brilliant Repository Sub-view */}
+        {moreSubView === 'brilliant' && (
+          <div className="space-y-4">
+            {renderSubHeader(language === 'ko' ? '탁월 저장소' : 'Brilliant Repository')}
+            <div className="overflow-y-auto max-h-[60vh] no-scrollbar">
+              {brilliantItems.length === 0 ? (
+                <div className="text-center py-20 text-slate-400 font-bold text-xs">
+                  {language === 'ko' ? '저장된 묘수가 없습니다.' : 'No Brilliant moves saved yet.'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 pb-12">
+                  {brilliantItems.map((item, idx) => (
+                    <div 
+                      key={`${item.game.hashid}-${idx}`}
+                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
+                      className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative ${
+                        isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+                      }`}
+                    >
+                      <span className="absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full bg-cyan-650 text-white shadow-sm">
+                        Brilliant
+                      </span>
+                      <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-850 relative">
+                        <Chessboard 
+                          options={{
+                            position: item.afterFen,
+                            boardOrientation: item.moveIndex % 2 === 0 ? 'white' : 'black',
+                            allowDragging: false,
+                            pieces: getCustomPieces()
+                          }}
+                        />
+                      </div>
+                      <div className="w-full text-center space-y-0.5">
+                        <div className="text-xs font-black truncate">
+                          {item.whitePlayer} vs {item.blackPlayer}
+                        </div>
+                        <div className="text-[10px] font-black text-cyan-500">
+                          {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Blunder Repository Sub-view */}
+        {moreSubView === 'blunder' && (
+          <div className="space-y-4">
+            {renderSubHeader(language === 'ko' ? '블런더 저장소' : 'Blunder Repository')}
+            <div className="overflow-y-auto max-h-[60vh] no-scrollbar">
+              {blunderItems.length === 0 ? (
+                <div className="text-center py-20 text-slate-400 font-bold text-xs">
+                  {language === 'ko' ? '저장된 실수가 없습니다.' : 'No Blunders saved yet.'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 pb-12">
+                  {blunderItems.map((item, idx) => (
+                    <div 
+                      key={`${item.game.hashid}-${idx}`}
+                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
+                      className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative ${
+                        isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+                      }`}
+                    >
+                      <span className="absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-650 text-white shadow-sm">
+                        Blunder
+                      </span>
+                      <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-850 relative">
+                        <Chessboard 
+                          options={{
+                            position: item.afterFen,
+                            boardOrientation: item.moveIndex % 2 === 0 ? 'white' : 'black',
+                            allowDragging: false,
+                            pieces: getCustomPieces()
+                          }}
+                        />
+                      </div>
+                      <div className="w-full text-center space-y-0.5">
+                        <div className="text-xs font-black truncate">
+                          {item.whitePlayer} vs {item.blackPlayer}
+                        </div>
+                        <div className="text-[10px] font-black text-red-500">
+                          {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderAnalyzeTab = () => {
+    const isDark = darkMode === 'dark';
+    const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    
+    // Evaluation calculations
+    const evalScore = getAnalyzeEvaluation();
+    const prob = evalToWinProb(evalScore);
+    const whitePct = prob * 100;
+    const blackPct = 100 - whitePct;
+    
+    const handleAnalyzeSquareClick = (square: string) => {
+      if (!showMoveDestinations) return;
+      const tempChess = new Chess(activeFen);
+      
+      if (selectedSquare && possibleMoves.includes(square)) {
+        handleAnalyzePieceDrop({ sourceSquare: selectedSquare, targetSquare: square, piece: 'p' });
+        setSelectedSquare(null);
+        setPossibleMoves([]);
+        return;
+      }
+      
+      const piece = tempChess.get(square as any);
+      if (piece && piece.color === tempChess.turn()) {
+        setSelectedSquare(square);
+        const moves = tempChess.moves({ square: square as any, verbose: true });
+        setPossibleMoves(moves.map(m => m.to));
+      } else {
+        setSelectedSquare(null);
+        setPossibleMoves([]);
+      }
+    };
+
+    const getAnalyzeSquareStyles = () => {
+      const styles: Record<string, any> = {};
+      if (showBoardHighlights && currentNodeId !== 'root') {
+        const node = moveTree[currentNodeId];
+        if (node && node.from && node.to) {
+          styles[node.from] = { backgroundColor: 'rgba(255, 235, 59, 0.4)' };
+          styles[node.to] = { backgroundColor: 'rgba(255, 235, 59, 0.4)' };
+        }
+      }
+      return styles;
+    };
+
+    const handlePrevMove = () => {
+      const node = moveTree[currentNodeId];
+      if (node && node.parentId) {
+        setCurrentNodeId(node.parentId);
+      }
+    };
+
+    const handleNextMove = () => {
+      const node = moveTree[currentNodeId];
+      if (node && node.children && node.children.length > 0) {
+        setCurrentNodeId(node.children[0]);
+      }
+    };
+
+    // Reconstruct moves list from moveTree starting from root and copy it
+    const exportPgn = () => {
+      const getMovesList = (nodeId: string): string[] => {
+        const node = moveTree[nodeId];
+        if (!node || node.children.length === 0) return [];
+        const firstChild = moveTree[node.children[0]];
+        return [firstChild.san, ...getMovesList(firstChild.id)];
+      };
+      const moves = getMovesList('root');
+      let pgnStr = '';
+      for (let i = 0; i < moves.length; i += 2) {
+        pgnStr += `${Math.floor(i / 2) + 1}. ${moves[i]} ${moves[i+1] || ''} `;
+      }
+      navigator.clipboard.writeText(pgnStr.trim());
+      alert(language === 'ko' ? 'PGN 기보가 클립보드에 복사되었습니다!' : 'PGN moves list copied to clipboard!');
+    };
+
+    return (
+      <div className={`flex-1 flex flex-col justify-between overflow-hidden relative ${
+        isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+      }`}>
+        {/* Header */}
+        <header className={`flex items-center justify-between py-2 px-4 border-b shrink-0 shadow-sm z-10 ${
+          isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+        }`}>
+          <button onClick={() => { setActiveTab('home'); }} className={`p-2 rounded-full ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'}`}>
+            <ChevronLeft size={22} />
+          </button>
+          <div className="flex flex-col items-center">
+            <h2 className="font-black text-sm">{language === 'ko' ? '자유 분석판' : 'Analysis Board'}</h2>
+            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">{language === 'ko' ? '로컬 실시간 피드백' : 'Local real-time evaluation'}</span>
+          </div>
+          
+          {/* Header settings icon (3-dots vertical settings) */}
+          <div className="relative">
+            <button 
+              onClick={() => setIsAnalyzeSettingsOpen(prev => !prev)}
+              className={`p-2 rounded-full transition-colors cursor-pointer ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-655'}`}
+              title={language === 'ko' ? '분석판 설정' : 'Analysis Settings'}
+            >
+              <MoreVertical size={20} />
+            </button>
+            {isAnalyzeSettingsOpen && (
+              <div className={`absolute right-0 mt-2 w-64 rounded-2xl shadow-xl p-4 border z-50 text-xs space-y-4 animate-fade-in ${
+                isDark ? 'bg-stone-900 border-stone-800 text-white shadow-black/80' : 'bg-white border-stone-200 text-slate-800'
+              }`}>
+                <div className="flex justify-between items-center pb-2 border-b border-stone-800/40">
+                  <span className="font-extrabold text-[10px] text-slate-400 uppercase tracking-widest">{language === 'ko' ? '분석 옵션 설정' : 'Analysis Settings'}</span>
+                  <button onClick={() => setIsAnalyzeSettingsOpen(false)} className={`p-0.5 rounded ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-100 text-slate-500'}`}><X size={14} /></button>
+                </div>
+                
+                {/* 1. Explorer Settings */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">{language === 'ko' ? '오프닝 탐색기 설정' : 'Opening Explorer'}</label>
+                  <div className={`grid grid-cols-2 gap-1 p-0.5 rounded-lg border ${isDark ? 'bg-stone-950/40 border-stone-850' : 'bg-stone-100 border-stone-250'}`}>
+                    <button onClick={() => setExplorerDb('lichess')} className={`py-1 rounded text-[9px] font-black transition-all cursor-pointer ${explorerDb === 'lichess' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>Lichess</button>
+                    <button onClick={() => setExplorerDb('masters')} className={`py-1 rounded text-[9px] font-black transition-all cursor-pointer ${explorerDb === 'masters' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>Masters</button>
+                  </div>
+                </div>
+
+                {/* 2. Engine Settings */}
+                <div className="space-y-2 border-t border-stone-800/40 pt-2.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{language === 'ko' ? '엔진 분석 (실시간)' : 'Live Engine Evals'}</label>
+                    <button 
+                      onClick={() => setIsAnalyzeEngineEnabled(prev => !prev)}
+                      className={`w-7 h-4 rounded-full p-0.5 flex items-center transition-all cursor-pointer ${isAnalyzeEngineEnabled ? 'bg-blue-600 justify-end' : 'bg-stone-850 justify-start'}`}
+                    >
+                      <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
+                    </button>
+                  </div>
+                  {isAnalyzeEngineEnabled && (
+                    <div className="space-y-2.5 pl-1">
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[9px] font-bold text-slate-450">
+                          <span>{language === 'ko' ? '추천 라인 개수 (PV)' : 'Engine Line Count (PV)'}</span>
+                          <span className="text-blue-500 font-extrabold">{engineLinesCount} Lines</span>
+                        </div>
+                        <input 
+                          type="range"
+                          min={1}
+                          max={5}
+                          step={1}
+                          value={engineLinesCount}
+                          onChange={(e) => setEngineLinesCount(parseInt(e.target.value, 10))}
+                          className="w-full h-1 bg-stone-850 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[9px] font-bold text-slate-450">
+                          <span>{language === 'ko' ? '엔진 분석 깊이 (Depth)' : 'Max Calculation Depth'}</span>
+                          <span className="text-blue-500 font-extrabold">{depth} Ply</span>
+                        </div>
+                        <input 
+                          type="range"
+                          min={12}
+                          max={20}
+                          step={2}
+                          value={depth}
+                          onChange={(e) => setDepth(parseInt(e.target.value, 10) as any)}
+                          className="w-full h-1 bg-stone-850 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Best Move Arrow Settings */}
+                <div className="space-y-2.5 border-t border-stone-800/40 pt-2.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{language === 'ko' ? '최선수 화살표 표시' : 'Show Best Move Arrow'}</label>
+                    <button 
+                      onClick={() => setBestMoveArrowEnabled(prev => !prev)}
+                      className={`w-7 h-4 rounded-full p-0.5 flex items-center transition-all cursor-pointer ${bestMoveArrowEnabled ? 'bg-blue-600 justify-end' : 'bg-stone-850 justify-start'}`}
+                    >
+                      <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
+                    </button>
+                  </div>
+                  {bestMoveArrowEnabled && (
+                    <div className="space-y-1 pl-1">
+                      <span className="text-[9px] font-bold text-slate-500 block">{language === 'ko' ? '화살표 색상' : 'Arrow Color'}</span>
+                      <div className="flex gap-2">
+                        {['#10b981', '#ef4444', '#3b82f6', '#eab308'].map(color => (
+                          <button 
+                            key={color}
+                            onClick={() => setArrowColor(color)}
+                            className={`w-5 h-5 rounded-full border transition-all cursor-pointer ${
+                              arrowColor === color ? 'border-white scale-110 shadow-md shadow-black/40 ring-1 ring-blue-500' : 'border-stone-800 hover:scale-105'
+                            }`}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* PV lines info panel */}
+        {isAnalyzeEngineEnabled && (
+          <div className={`px-4 py-1 text-[9px] font-bold border-b flex flex-col gap-0.5 shrink-0 ${
+            isDark ? 'bg-stone-900/60 border-stone-850 text-slate-400' : 'bg-stone-50 border-stone-200 text-slate-600'
+          }`}>
+            {engineLines.length === 0 ? (
+              <span className="flex items-center gap-1.5 italic text-slate-500 py-0.5">
+                <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                {language === 'ko' ? '엔진 분석 대기 중...' : 'Engine calculating...'}
+              </span>
+            ) : (
+              engineLines.slice(0, 3).map((line, idx) => (
+                <div key={idx} className="flex justify-between items-center py-0.5">
+                  <span className="text-blue-400 font-extrabold w-6 text-center">PV{line.multipv}</span>
+                  <span className="flex-1 truncate font-mono text-[9px] mx-2 text-slate-350">{line.pv}</span>
+                  <span className={`font-mono font-black shrink-0 px-1 rounded ${
+                    line.score >= 0 ? 'bg-green-950 text-green-400' : 'bg-red-950 text-red-400'
+                  }`}>
+                    {line.isMate ? `M${line.score}` : (line.score / 100 > 0 ? `+${(line.score / 100).toFixed(2)}` : (line.score / 100).toFixed(2))}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* Board & Eval container (Optimized padding and height to pull board up) */}
+        <div className="flex flex-col items-center justify-start p-2 gap-2 shrink-0">
+          <div className="flex gap-2.5 items-stretch w-full max-w-[360px]">
+            {/* Evaluation Bar */}
+            {isAnalyzeEngineEnabled && (
+              <div className="w-3.5 bg-stone-900 border border-stone-850 rounded-full overflow-hidden flex flex-col relative shrink-0 shadow-inner" style={{ height: '240px' }}>
+                {boardOrientation === 'white' ? (
+                  <>
+                    <div className="bg-stone-900 transition-all duration-300 ease-out w-full" style={{ height: `${blackPct}%` }} />
+                    <div className="bg-white transition-all duration-300 ease-out w-full flex-1" />
+                  </>
+                ) : (
+                  <>
+                    <div className="bg-white transition-all duration-300 ease-out w-full" style={{ height: `${whitePct}%` }} />
+                    <div className="bg-stone-900 transition-all duration-300 ease-out w-full flex-1" />
+                  </>
+                )}
+                <span className={`absolute text-[8px] font-black pointer-events-none select-none px-1 rounded ${
+                  evalScore >= 0
+                    ? (boardOrientation === 'white' ? 'bottom-1 text-slate-800 bg-white/70' : 'top-1 text-slate-800 bg-white/70')
+                    : (boardOrientation === 'white' ? 'top-1 text-white bg-slate-900/70' : 'bottom-1 text-white bg-slate-900/70')
+                }`}>
+                  {getEvalStr(evalScore)}
+                </span>
+              </div>
+            )}
+            
+            {/* Chessboard */}
+            <div className="flex-1 aspect-square max-w-[280px] overflow-hidden rounded-xl shadow-md border border-stone-250/60 bg-white relative">
+              <Chessboard 
+                options={{
+                  position: activeFen,
+                  boardOrientation: boardOrientation,
+                  allowDragging: true,
+                  onPieceDrop: handleAnalyzePieceDrop,
+                  onSquareClick: ({ piece, square }) => handleAnalyzeSquareClick(square),
+                  darkSquareStyle: { backgroundColor: themeColors.dark },
+                  lightSquareStyle: { backgroundColor: themeColors.light },
+                  showNotation: showCoordinates,
+                  pieces: getCustomPieces(),
+                  arrows: bestMoveArrowEnabled && bestMoveArrow 
+                    ? [{ startSquare: bestMoveArrow.from, endSquare: bestMoveArrow.to, color: arrowColor }] 
+                    : [],
+                  squareRenderer: ({ piece, square, children }) => {
+                    const isSelected = selectedSquare === square;
+                    const isPossible = possibleMoves.includes(square);
+                    
+                    const highlightedStyles = getAnalyzeSquareStyles();
+                    const highlightStyle = isSelected 
+                      ? 'bg-blue-500/30 ring-2 ring-blue-500 ring-inset' 
+                      : (isPossible ? 'bg-blue-400/20' : (highlightedStyles[square] ? highlightedStyles[square].backgroundColor : ''));
+                    
+                    return (
+                      <div className={`relative w-full h-full flex items-center justify-center cursor-pointer ${highlightStyle}`}>
+                        {children}
+                        {isPossible && (
+                          <div className={`absolute rounded-full ${
+                            piece ? 'w-5/6 h-5/6 border-[4px] border-blue-400/60' : 'w-3 h-3 bg-blue-400/60'
+                          }`} />
+                        )}
+                      </div>
+                    );
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Sub-tabs explorer below the board (Expanded height to flex-1 to occupy maximum available space) */}
+        <div className={`flex flex-col flex-1 border-t overflow-hidden shrink ${
+          isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-150'
+        }`}>
+          {/* Sub-tab headers */}
+          <div className="h-9 flex border-b border-stone-850 shrink-0 text-[10px] font-black">
+            <button onClick={() => setAnalyzeSubTab('BOOK')} className={`flex-1 flex items-center justify-center gap-1.5 cursor-pointer ${analyzeSubTab === 'BOOK' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500'}`}>
+              <BookOpen size={12} /> {language === 'ko' ? '오프닝 북' : 'Openings Book'}
+            </button>
+            <button onClick={() => setAnalyzeSubTab('TREE')} className={`flex-1 flex items-center justify-center gap-1.5 cursor-pointer ${analyzeSubTab === 'TREE' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500'}`}>
+              <Layers size={12} /> {language === 'ko' ? '수 수순 트리' : 'Game Moves'}
+            </button>
+            <button onClick={() => setAnalyzeSubTab('SETTINGS')} className={`flex-1 flex items-center justify-center gap-1.5 cursor-pointer ${analyzeSubTab === 'SETTINGS' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500'}`}>
+              <Settings size={12} /> {language === 'ko' ? '분석 라인 설정' : 'Lines Settings'}
+            </button>
+          </div>
+          
+          {/* Sub-tab body */}
+          <div className="flex-1 p-3 overflow-y-auto no-scrollbar">
+            {analyzeSubTab === 'BOOK' && (
+              isLoadingOpening ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                </div>
+              ) : (!openingData || !openingData.moves || openingData.moves.length === 0) ? (
+                <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
+                  {language === 'ko' ? '오프닝 데이터베이스 기록이 없습니다.' : 'No opening statistics found.'}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {openingData.moves.slice(0, 8).map((move: any, idx: number) => {
+                    const total = move.white + move.draws + move.black;
+                    const wPct = total > 0 ? (move.white / total) * 100 : 0;
+                    const dPct = total > 0 ? (move.draws / total) * 100 : 0;
+                    const bPct = total > 0 ? (move.black / total) * 100 : 0;
+                    return (
+                      <div key={idx} className="flex items-center justify-between text-[10px] font-bold border-b border-stone-800/20 pb-1.5 pt-0.5">
+                        <button 
+                          onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
+                          className="w-10 text-left text-blue-500 hover:underline font-black cursor-pointer"
+                        >
+                          {move.san}
+                        </button>
+                        <div className="flex-1 max-w-[120px] h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner">
+                          <div style={{ width: `${wPct}%` }} className="bg-slate-200 h-full" title={`W: ${Math.round(wPct)}%`} />
+                          <div style={{ width: `${dPct}%` }} className="bg-slate-400 h-full" title={`D: ${Math.round(dPct)}%`} />
+                          <div style={{ width: `${bPct}%` }} className="bg-slate-800 h-full" title={`B: ${Math.round(bPct)}%`} />
+                        </div>
+                        <div className="w-24 text-right text-[9px] text-slate-450 font-semibold">
+                          <div>{total.toLocaleString()} Games</div>
+                          <div>Avg: {move.averageRating || 'N/A'}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            )}
+
+            {analyzeSubTab === 'TREE' && (
+              <div className="flex flex-wrap gap-x-1.5 gap-y-2 leading-relaxed text-xs max-w-full font-sans">
+                {renderMoveTree('root')}
+              </div>
+            )}
+
+            {analyzeSubTab === 'SETTINGS' && (
+              <div className="space-y-4 text-xs font-semibold p-1">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[9px] font-bold text-slate-450 uppercase tracking-widest">
+                    <span>{language === 'ko' ? '엔진 분석 추천 개수 (MultiPV)' : 'Engine Line Count'}</span>
+                    <span className="text-blue-500 font-extrabold">{engineLinesCount} Lines</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min={1}
+                    max={5}
+                    step={1}
+                    value={engineLinesCount}
+                    onChange={(e) => setEngineLinesCount(parseInt(e.target.value, 10))}
+                    className="w-full h-1 bg-stone-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Bottom analysis toolbar */}
+        <div className={`h-11 border-t flex justify-between items-center px-4 shrink-0 z-10 ${
+          isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-150'
+        }`}>
+          {/* 3-lines menu with editor options */}
+          <div className="relative">
+            <button 
+              onClick={() => setIsAnalyzeMenuOpen(prev => !prev)}
+              className={`p-1.5 rounded-lg text-slate-500 hover:text-slate-800 cursor-pointer`}
+              title={language === 'ko' ? '메뉴' : 'Menu'}
+            >
+              <Menu size={18} />
+            </button>
+            {isAnalyzeMenuOpen && (
+              <div className={`absolute left-0 bottom-10 w-48 rounded-2xl shadow-2xl p-2 border z-50 text-[10px] font-bold space-y-1 animate-fade-in ${
+                isDark ? 'bg-stone-900 border-stone-800 text-white shadow-black/85' : 'bg-white border-stone-200 text-slate-800'
+              }`}>
+                <button 
+                  onClick={() => {
+                    setBoardOrientation(prev => prev === 'white' ? 'black' : 'white');
+                    setIsAnalyzeMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl cursor-pointer ${isDark ? 'hover:bg-stone-800' : 'hover:bg-stone-100'}`}
+                >
+                  🔄 {language === 'ko' ? '보드 돌리기' : 'Flip Board'}
+                </button>
+                <button 
+                  onClick={() => {
+                    const fenIn = prompt(language === 'ko' ? 'FEN 포지션을 입력해 보드를 설정하세요 (보드 편집기):' : 'Enter FEN code to configure board (Board Editor):');
+                    if (fenIn && fenIn.trim()) {
+                      try {
+                        const temp = new Chess(fenIn.trim());
+                        setMoveTree({ 'root': { id: 'root', san: '', from: '', to: '', fen: temp.fen(), parentId: null, children: [] } });
+                        setCurrentNodeId('root');
+                      } catch (e) {
+                        alert(language === 'ko' ? '올바르지 않은 FEN입니다.' : 'Invalid FEN code.');
+                      }
+                    }
+                    setIsAnalyzeMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl cursor-pointer ${isDark ? 'hover:bg-stone-800' : 'hover:bg-stone-100'}`}
+                >
+                  🛠️ {language === 'ko' ? '보드 편집기 (FEN 설정)' : 'Board Editor (Set FEN)'}
+                </button>
+                <button 
+                  onClick={() => {
+                    setMoveTree({ 'root': { id: 'root', san: '', from: '', to: '', fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', parentId: null, children: [] } });
+                    setCurrentNodeId('root');
+                    setIsAnalyzeMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl cursor-pointer ${isDark ? 'hover:bg-stone-800' : 'hover:bg-stone-100'}`}
+                >
+                  🧹 {language === 'ko' ? '시작 포지션으로 리셋' : 'Reset to Start'}
+                </button>
+                <button 
+                  onClick={() => {
+                    const fenClean = '8/8/8/8/8/8/8/8 w - - 0 1';
+                    setMoveTree({ 'root': { id: 'root', san: '', from: '', to: '', fen: fenClean, parentId: null, children: [] } });
+                    setCurrentNodeId('root');
+                    setIsAnalyzeMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl cursor-pointer ${isDark ? 'hover:bg-stone-800' : 'hover:bg-stone-100'}`}
+                >
+                  🗑️ {language === 'ko' ? '체스판 모든 기물 비우기' : 'Clear Board Pieces'}
+                </button>
+                <button 
+                  onClick={() => {
+                    exportPgn();
+                    setIsAnalyzeMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl cursor-pointer border-t border-stone-800/40 ${isDark ? 'hover:bg-stone-800' : 'hover:bg-stone-100'}`}
+                >
+                  📝 {language === 'ko' ? 'PGN 기보 복사하기' : 'Copy PGN Moves'}
+                </button>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(activeFen);
+                    alert(language === 'ko' ? 'FEN이 복사되었습니다!' : 'FEN copied!');
+                    setIsAnalyzeMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl cursor-pointer ${isDark ? 'hover:bg-stone-800' : 'hover:bg-stone-100'}`}
+                >
+                  📋 {language === 'ko' ? 'FEN 복사하기' : 'Copy FEN'}
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Engine toggle */}
+          <button 
+            onClick={() => setIsAnalyzeEngineEnabled(prev => !prev)}
+            className={`px-3 py-1 rounded-xl text-[9px] font-black border transition-all cursor-pointer ${
+              isAnalyzeEngineEnabled 
+                ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+                : (isDark ? 'bg-stone-900 border-stone-800 text-slate-500' : 'bg-white border-stone-250 text-slate-500')
+            }`}
+          >
+            ⚙️ {language === 'ko' ? '엔진추천' : 'Engine recommendations'}
+          </button>
+          
+          {/* Navigation previous/next */}
+          <div className="flex gap-2">
+            <button 
+              onClick={handlePrevMove}
+              disabled={currentNodeId === 'root'}
+              className="p-1 hover:bg-stone-850 text-slate-500 rounded disabled:opacity-30 cursor-pointer"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <button 
+              onClick={handleNextMove}
+              disabled={moveTree[currentNodeId]?.children.length === 0}
+              className="p-1 hover:bg-stone-850 text-slate-500 rounded disabled:opacity-30 cursor-pointer"
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="h-screen sm:h-auto sm:min-h-screen bg-stone-900 text-slate-800 flex justify-center items-center p-0 sm:p-4 font-sans selection:bg-slate-200 selection:text-slate-900 antialiased">
@@ -1574,8 +3381,97 @@ export default function Home() {
           </div>
         )}
 
+        {view !== 'LOADING' && activeTab === 'home' && renderHomeTab()}
+
+        {view !== 'LOADING' && activeTab === 'more' && renderMoreTab()}
+
+        {view !== 'LOADING' && activeTab === 'analyze' && renderAnalyzeTab()}
+
+        {view !== 'LOADING' && activeTab === 'chessle' && !chesslePuzzle && (
+          <div className={`flex-1 flex flex-col p-5 overflow-y-auto no-scrollbar justify-between ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <div className="space-y-6 pt-4">
+              <div className="flex items-center gap-2 border-b pb-4 border-stone-850">
+                <SpeerLogo className={`w-6 h-6 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
+                <h3 className="font-black text-sm uppercase tracking-widest">{language === 'ko' ? '🧩 Chessle (체슬)' : '🧩 Chessle'}</h3>
+              </div>
+              
+              <div className={`rounded-2xl p-5 border text-xs leading-relaxed space-y-2 ${
+                darkMode === 'dark' ? 'bg-stone-900/30 border-stone-850 text-slate-350' : 'bg-stone-100 border-stone-250'
+              }`}>
+                <p className="font-bold text-xs">{language === 'ko' ? '🏁 오프닝 맞추기 퍼즐' : '🏁 Opening Guessing Game'}</p>
+                <p>
+                  {language === 'ko' 
+                    ? '상대방이 둔 오프닝 5수(10개 반수)를 유추하고 입력하는 퍼즐 게임입니다.' 
+                    : 'Guess the first 10 half-moves of a standard chess match.'}
+                </p>
+                <p>
+                  {language === 'ko'
+                    ? '시도 결과에 따라 맞춘 위치와 수순을 워드(Wordle) 스타일 색상으로 평가해 줍니다.'
+                    : 'Get color-coded feedback indicating correct, present, or wrong moves.'}
+                </p>
+              </div>
+              
+              <div className="space-y-4">
+                <button 
+                  onClick={() => {
+                    const randomGame = allGames.length > 0 ? allGames[Math.floor(Math.random() * allGames.length)] : PRESET_GAMES[0];
+                    startChessleGame(randomGame);
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold py-3.5 rounded-2xl text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                >
+                  {language === 'ko' ? '오늘의 랜덤 체슬 시작하기' : 'Start Random Chessle'}
+                </button>
+                
+                <div className="space-y-1.5 pt-3 border-t border-stone-850/60">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
+                    {language === 'ko' ? '고유 게임 코드로 참여' : 'Enter Custom Game Code'}
+                  </label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      placeholder={language === 'ko' ? '예: hashid 입력' : 'Game hashid...'}
+                      value={chessleCodeInput}
+                      onChange={(e) => setChessleCodeInput(e.target.value)}
+                      className={`flex-1 p-2.5 rounded-xl border text-xs font-bold ${
+                        darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-200 text-slate-800'
+                      }`}
+                    />
+                    <button 
+                      onClick={async () => {
+                        const code = chessleCodeInput.trim();
+                        if (!code) return;
+                        setView('LOADING');
+                        setProgress(0);
+                        setQuote(quotes[Math.floor(Math.random() * quotes.length)]);
+                        try {
+                          const res = await fetch(`/api/games?hashid=${code}&t=${Date.now()}`);
+                          if (!res.ok) throw new Error();
+                          const data = await res.json();
+                          startChessleGame({
+                            hashid: code,
+                            analysis_json: data.analysis_json,
+                            pgn: data.pgn
+                          });
+                        } catch (e) {
+                          alert(language === 'ko' ? '존재하지 않는 코드입니다.' : 'Invalid code.');
+                          setView('INPUT');
+                        }
+                      }}
+                      className="px-4 bg-slate-800 hover:bg-slate-750 text-white font-bold rounded-xl text-xs cursor-pointer active:scale-95 transition-all"
+                    >
+                      {language === 'ko' ? '입장' : 'Enter'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* VIEW: SUMMARY */}
-        {view === 'SUMMARY' && analysis && (
+        {view === 'SUMMARY' && activeTab === 'review' && analysis && (
           <div className="flex-1 flex flex-col bg-stone-50 overflow-y-auto no-scrollbar">
             <header className="flex items-center justify-between p-4 bg-white border-b border-stone-200/60 sticky top-0 z-10 shadow-sm">
               <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600">
@@ -1765,7 +3661,7 @@ export default function Home() {
         )}
 
         {/* VIEW: REVIEW */}
-        {view === 'REVIEW' && analysis && (
+        {view === 'REVIEW' && activeTab === 'review' && analysis && (
           <div className="flex-1 flex flex-col bg-white overflow-hidden">
             <header className="flex items-center justify-between py-2 px-4 bg-white border-b border-stone-200/60 shadow-sm z-10">
               <button onClick={() => setView('SUMMARY')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600">
@@ -2195,7 +4091,7 @@ export default function Home() {
         )}
 
         {/* VIEW: INPUT */}
-        {view === 'INPUT' && (
+        {view === 'INPUT' && activeTab === 'review' && (
           <div className="flex-1 flex flex-col bg-white overflow-y-auto no-scrollbar relative">
             {/* Home Top Bar */}
             <div className="flex items-center justify-center px-4 py-3 border-b border-stone-200/40 bg-stone-50/25 shrink-0">
@@ -2734,7 +4630,7 @@ export default function Home() {
         </div>
 
         {/* VIEW: EXPLORE */}
-        {view === 'EXPLORE' && (
+        {view === 'EXPLORE' && activeTab === 'review' && (
           <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
             <header className="flex items-center justify-between py-3 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
               <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
@@ -3030,7 +4926,7 @@ export default function Home() {
         )}
 
         {/* VIEW: CHESSLE */}
-        {view === 'CHESSLE' && chesslePuzzle && (
+        {view === 'CHESSLE' && activeTab === 'chessle' && chesslePuzzle && (
           <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
             <header className="flex items-center justify-between py-2 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
               <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
@@ -3394,6 +5290,65 @@ export default function Home() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* BOTTOM NAVIGATION BAR */}
+        {view !== 'LOADING' && (
+          <nav className={`h-14 border-t flex items-center justify-around shrink-0 z-40 select-none ${
+            darkMode === 'dark' 
+              ? 'bg-stone-900 border-stone-850 text-slate-400' 
+              : 'bg-white border-stone-200 text-slate-500'
+          }`}>
+            <button 
+              onClick={() => { setActiveTab('home'); }}
+              className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
+                activeTab === 'home' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
+              }`}
+            >
+              <HomeIcon size={18} />
+              <span className="text-[9px] mt-1 font-bold">{language === 'ko' ? '홈' : 'Home'}</span>
+            </button>
+            
+            <button 
+              onClick={() => { setActiveTab('review'); setView('INPUT'); }}
+              className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
+                activeTab === 'review' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
+              }`}
+            >
+              <Play size={18} fill={activeTab === 'review' ? 'currentColor' : 'none'} />
+              <span className="text-[9px] mt-1 font-bold">{language === 'ko' ? '리뷰' : 'Review'}</span>
+            </button>
+            
+            <button 
+              onClick={() => { setActiveTab('analyze'); }}
+              className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
+                activeTab === 'analyze' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
+              }`}
+            >
+              <GitBranch size={18} />
+              <span className="text-[9px] mt-1 font-bold">{language === 'ko' ? '분석' : 'Analyze'}</span>
+            </button>
+            
+            <button 
+              onClick={() => { setActiveTab('chessle'); setChesslePuzzle(null); }}
+              className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
+                activeTab === 'chessle' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
+              }`}
+            >
+              <Award size={18} />
+              <span className="text-[9px] mt-1 font-bold">{language === 'ko' ? '체슬' : 'Chessle'}</span>
+            </button>
+            
+            <button 
+              onClick={() => { setActiveTab('more'); setMoreSubView('menu'); }}
+              className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
+                activeTab === 'more' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-850 text-slate-500'
+              }`}
+            >
+              <Menu size={18} />
+              <span className="text-[9px] mt-1 font-bold">{language === 'ko' ? '더보기' : 'More'}</span>
+            </button>
+          </nav>
         )}
       </div>
     </div>
