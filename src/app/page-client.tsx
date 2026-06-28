@@ -509,6 +509,18 @@ export default function Home() {
   const [ocrShowSelector, setOcrShowSelector] = useState<boolean>(false);
   const [ocrPredicting, setOcrPredicting] = useState<boolean>(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrScanMode, setOcrScanMode] = useState<'local' | 'cloud'>('local');
+  const [ocrCloudUrl, setOcrCloudUrl] = useState<string>('');
+
+  // Load OCR configurations from localStorage on start
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedUrl = localStorage.getItem('speerchess_ocr_cloud_url');
+      if (storedUrl) setOcrCloudUrl(storedUrl);
+      const storedMode = localStorage.getItem('speerchess_ocr_scan_mode') as 'local' | 'cloud';
+      if (storedMode) setOcrScanMode(storedMode);
+    }
+  }, []);
 
   // Chess OCR crop references
   const ocrCropRef = useRef<{ x: number; y: number; size: number }>({ x: 0, y: 0, size: 256 });
@@ -1240,6 +1252,14 @@ export default function Home() {
         });
       }
 
+      // If we are in cloud scanning mode, we don't need to load TFJS or the local model
+      if (ocrScanMode === 'cloud') {
+        if (isSubscribed) {
+          setOcrModelLoaded(true);
+        }
+        return;
+      }
+
       // 2. Load TFJS if not already loaded
       if (!(window as any).tf) {
         await new Promise<void>((resolve) => {
@@ -1278,7 +1298,7 @@ export default function Home() {
     return () => {
       isSubscribed = false;
     };
-  }, [activeTab, moreSubView, language, ocrModelLoading]);
+  }, [activeTab, moreSubView, language, ocrModelLoading, ocrScanMode]);
 
   // Chess OCR: Clipboard paste event listener
   useEffect(() => {
@@ -1452,7 +1472,8 @@ export default function Home() {
     const img = ocrImageRef.current;
     const resultCanvas = ocrResultCanvasRef.current;
     const predictor = ocrPredictorRef.current;
-    if (!img || !resultCanvas || !predictor) return;
+    if (!img || !resultCanvas) return;
+    if (ocrScanMode === 'local' && !predictor) return;
 
     setOcrPredicting(true);
     setOcrError(null);
@@ -1474,6 +1495,46 @@ export default function Home() {
     const sourceSize = size * scale;
 
     ctx.drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, 256, 256);
+
+    if (ocrScanMode === 'cloud') {
+      resultCanvas.toBlob(async (blob) => {
+        if (!blob) {
+          setOcrPredicting(false);
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', blob, 'cropped_chessboard.png');
+
+        try {
+          if (!ocrCloudUrl || !ocrCloudUrl.trim()) {
+            throw new Error(language === 'ko' ? "API URL 설정이 비어 있습니다." : "API URL setting is empty.");
+          }
+          const predictUrl = ocrCloudUrl.endsWith('/') ? `${ocrCloudUrl}predict` : `${ocrCloudUrl}/predict`;
+          const response = await fetch(predictUrl, {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          if (data.grid) {
+            setOcrBoardState(data.grid);
+          } else {
+            throw new Error(language === 'ko' ? "올바른 FEN 데이터가 오지 않았습니다." : "Invalid FEN response format.");
+          }
+        } catch (err: any) {
+          console.error("Cloud OCR prediction error:", err);
+          setOcrError(err.message || (language === 'ko' ? "클라우드 스캔 서버 연결 실패" : "Cloud scan server connection failed"));
+        } finally {
+          setOcrPredicting(false);
+        }
+      }, 'image/png');
+      return;
+    }
 
     const imgData = ctx.getImageData(0, 0, 256, 256);
     const data = imgData.data;
@@ -2943,6 +3004,67 @@ export default function Home() {
         {moreSubView === 'ocr' && (
           <div className="space-y-4">
             {renderSubHeader('Chess OCR')}
+
+            {/* Scan Mode & URL Settings */}
+            <div className={`p-3.5 rounded-2xl border space-y-3 text-xs ${isDark ? 'bg-stone-900/40 border-stone-850' : 'bg-stone-100 border-stone-250'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider">
+                  {language === 'ko' ? '스캐너 방식 설정' : 'Scanner Mode'}
+                </span>
+                <div className={`flex gap-1 p-0.5 rounded-lg border ${isDark ? 'bg-stone-950/40 border-stone-800' : 'bg-stone-50 border-stone-200'}`}>
+                  <button 
+                    onClick={() => {
+                      setOcrScanMode('local');
+                      localStorage.setItem('speerchess_ocr_scan_mode', 'local');
+                    }}
+                    className={`px-2.5 py-0.5 rounded text-[9px] font-black cursor-pointer transition-all ${
+                      ocrScanMode === 'local' 
+                        ? 'bg-blue-600 text-white shadow-sm' 
+                        : 'text-slate-400'
+                    }`}
+                  >
+                    Local (TFJS)
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setOcrScanMode('cloud');
+                      localStorage.setItem('speerchess_ocr_scan_mode', 'cloud');
+                    }}
+                    className={`px-2.5 py-0.5 rounded text-[9px] font-black cursor-pointer transition-all ${
+                      ocrScanMode === 'cloud' 
+                        ? 'bg-blue-600 text-white shadow-sm' 
+                        : 'text-slate-400'
+                    }`}
+                  >
+                    Cloud (YOLO)
+                  </button>
+                </div>
+              </div>
+
+              {ocrScanMode === 'cloud' && (
+                <div className="space-y-1.5 pt-1.5 border-t border-stone-800/20">
+                  <div className="flex justify-between text-[9px] font-bold text-slate-500">
+                    <span>Hugging Face Space API URL</span>
+                  </div>
+                  <input 
+                    type="text" 
+                    placeholder="https://user-chess-scan.hf.space"
+                    value={ocrCloudUrl}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setOcrCloudUrl(val);
+                      localStorage.setItem('speerchess_ocr_cloud_url', val);
+                    }}
+                    className="w-full bg-stone-900/60 border border-stone-850 px-3 py-1.5 rounded-xl font-mono text-[9px] text-slate-350 outline-none focus:border-blue-500"
+                  />
+                  <span className="text-[8px] text-slate-500 font-semibold block leading-normal">
+                    {language === 'ko' 
+                      ? '💡 생성한 Hugging Face Space의 Direct URL 주소를 입력하세요. (끝에 /predict는 자동으로 붙습니다)' 
+                      : '💡 Enter the Direct URL of your Hugging Face Space. (/predict will be appended automatically)'}
+                  </span>
+                </div>
+              )}
+            </div>
             
             {/* Loading Overlay */}
             {ocrModelLoading && (
