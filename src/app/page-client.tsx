@@ -494,6 +494,27 @@ export default function Home() {
   // Chessle
   const [chesslePuzzle, setChesslePuzzle] = useState<any | null>(null);
   const [chessleCodeInput, setChessleCodeInput] = useState<string>('');
+
+  // Chess OCR States
+  const [ocrModelLoaded, setOcrModelLoaded] = useState<boolean>(false);
+  const [ocrModelLoading, setOcrModelLoading] = useState<boolean>(false);
+  const [ocrImageSrc, setOcrImageSrc] = useState<string | null>(null);
+  const [ocrBoardState, setOcrBoardState] = useState<string[][]>(
+    Array(8).fill(null).map(() => Array(8).fill('1'))
+  );
+  const [ocrIsFlipped, setOcrIsFlipped] = useState<boolean>(false);
+  const [ocrActiveEditSquare, setOcrActiveEditSquare] = useState<{ rank: number; file: number } | null>(null);
+  const [ocrShowSelector, setOcrShowSelector] = useState<boolean>(false);
+  const [ocrPredicting, setOcrPredicting] = useState<boolean>(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+
+  // Chess OCR crop references
+  const ocrCropRef = useRef<{ x: number; y: number; size: number }>({ x: 0, y: 0, size: 256 });
+  const ocrPredictorRef = useRef<any>(null);
+  const ocrImageRef = useRef<HTMLImageElement | null>(null);
+  const ocrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const ocrResultCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const ocrCropOverlayRef = useRef<HTMLDivElement | null>(null);
   
   // Settings values
   const [language, setLanguage] = useState<'ko' | 'en'>('ko');
@@ -1174,7 +1195,7 @@ export default function Home() {
       
       try {
         const dbParam = explorerDb === 'masters' ? 'masters' : 'lichess';
-        const url = `https://explorer.lichess.ovh/${dbParam}?fen=${encodeURIComponent(activeFen)}`;
+        const url = `/api/explorer?db=${dbParam}&fen=${encodeURIComponent(activeFen)}`;
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
@@ -1190,6 +1211,416 @@ export default function Home() {
     const debounce = setTimeout(fetchOpeningData, 300);
     return () => clearTimeout(debounce);
   }, [activeAnalysisFen, activeTab, analyzeSubTab, explorerDb]);
+
+  // Chess OCR: Load TensorFlow.js and Filters.js scripts dynamically
+  useEffect(() => {
+    if (activeTab !== 'more' || moreSubView !== 'ocr') return;
+
+    let isSubscribed = true;
+
+    const loadScripts = async () => {
+      // 1. Load Filters.js if not already loaded
+      if (!(window as any).Filters) {
+        await new Promise<void>((resolve) => {
+          const script = document.createElement('script');
+          script.src = '/filters.js';
+          script.async = true;
+          script.onload = () => resolve();
+          document.body.appendChild(script);
+        });
+      }
+
+      // 2. Load TFJS if not already loaded
+      if (!(window as any).tf) {
+        await new Promise<void>((resolve) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@0.12.5';
+          script.async = true;
+          script.onload = () => resolve();
+          document.body.appendChild(script);
+        });
+      }
+
+      if (!isSubscribed) return;
+
+      // 3. Load TFJS model
+      if (!ocrPredictorRef.current && !ocrModelLoading) {
+        setOcrModelLoading(true);
+        setOcrError(null);
+        try {
+          const tf = (window as any).tf;
+          const model = await tf.loadFrozenModel('/model/tensorflowjs_model.pb', '/model/weights_manifest.json');
+          ocrPredictorRef.current = model;
+          setOcrModelLoaded(true);
+        } catch (err: any) {
+          console.error("Error loading TFJS model:", err);
+          setOcrError(language === 'ko' ? "모델 파일 로딩에 실패했습니다. (public/model 경로 확인 요망)" : "Failed to load TFJS model files.");
+        } finally {
+          setOcrModelLoading(false);
+        }
+      } else if (ocrPredictorRef.current) {
+        setOcrModelLoaded(true);
+      }
+    };
+
+    loadScripts();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [activeTab, moreSubView, language, ocrModelLoading]);
+
+  // Chess OCR: Clipboard paste event listener
+  useEffect(() => {
+    if (activeTab !== 'more' || moreSubView !== 'ocr') return;
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = (e.clipboardData || (window as any).clipboardData)?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') === 0) {
+          const blob = items[i].getAsFile();
+          if (blob) {
+            handleOcrFile(blob);
+          }
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => {
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [activeTab, moreSubView]);
+
+  // Chess OCR: Bounding box UI visual sync
+  const updateOcrCropOverlayVisual = () => {
+    const overlay = ocrCropOverlayRef.current;
+    const canvas = ocrCanvasRef.current;
+    if (!overlay || !canvas) return;
+
+    const visualWidth = canvas.clientWidth;
+    const scale = visualWidth / 512;
+
+    const { x, y, size } = ocrCropRef.current;
+    overlay.style.left = `${x * scale}px`;
+    overlay.style.top = `${y * scale}px`;
+    overlay.style.width = `${size * scale}px`;
+    overlay.style.height = `${size * scale}px`;
+    overlay.style.display = 'block';
+  };
+
+  // Chess OCR: Handle Image File upload and run auto edge detection
+  const handleOcrFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        setOcrImageSrc(e.target.result as string);
+        setOcrError(null);
+        
+        const img = new Image();
+        img.onload = () => {
+          ocrImageRef.current = img;
+          processOcrImage(img);
+        };
+        img.src = e.target.result as string;
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Chess OCR: Sobel edge detection & auto-snapping grid coordinates
+  const processOcrImage = (img: HTMLImageElement) => {
+    const canvas = ocrCanvasRef.current;
+    if (!canvas) return;
+
+    const internalWidth = 512;
+    const internalHeight = Math.floor((img.height * internalWidth) / img.width);
+
+    canvas.width = internalWidth;
+    canvas.height = internalHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(img, 0, 0, internalWidth, internalHeight);
+
+    const Filters = (window as any).Filters;
+    if (!Filters) {
+      const size = Math.min(internalWidth, internalHeight) * 0.8;
+      ocrCropRef.current = {
+        x: (internalWidth - size) / 2,
+        y: (internalHeight - size) / 2,
+        size
+      };
+      updateOcrCropOverlayVisual();
+      cropAndPredictOcr();
+      return;
+    }
+
+    try {
+      let d = Filters.filterImage(Filters.gaussianBlur, canvas, 5);
+      d = Filters.sobel(d);
+
+      const w = d.width;
+      const h = d.height;
+      const pixelData = new Float32Array(d.data);
+      const scoreX = new Float32Array(w);
+      const scoreY = new Float32Array(h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const off = (y * w + x) * 4;
+          scoreX[x] += Math.log(pixelData[off] + 1);
+          scoreY[y] += Math.log(pixelData[off + 1] + 1);
+        }
+      }
+
+      const winsize = 30;
+      const ctrX = findOcrMax(scoreX, Math.floor(internalWidth / 2) - winsize, Math.floor(internalWidth / 2) + winsize);
+      const leftX = findOcrMax(scoreX, ctrX.idx - 65, ctrX.idx - 31);
+      const rightX = findOcrMax(scoreX, ctrX.idx + 31, ctrX.idx + 65);
+
+      const ctrY = findOcrMax(scoreY, Math.floor(internalHeight / 2) - winsize, Math.floor(internalHeight / 2) + winsize);
+      const botY = findOcrMax(scoreY, ctrY.idx + 31, ctrY.idx + 65);
+      const topY = findOcrMax(scoreY, ctrY.idx - 65, ctrY.idx - 31);
+
+      const deltaX = (rightX.idx - leftX.idx) / 2;
+      const deltaY = (botY.idx - topY.idx) / 2;
+
+      const startX = ctrX.idx - (4 * deltaX);
+      const startY = ctrY.idx - (4 * deltaY);
+      const endX = ctrX.idx + (4 * deltaX);
+      const endY = ctrY.idx + (4 * deltaY);
+      
+      const widthX = endX - startX;
+      const heightY = endY - startY;
+
+      if (widthX > 150 && widthX <= internalWidth && heightY > 150 && heightY <= internalHeight && Math.abs(widthX - heightY) < 30) {
+        ocrCropRef.current = {
+          x: Math.max(0, startX),
+          y: Math.max(0, startY),
+          size: Math.min(widthX, heightY)
+        };
+      } else {
+        const size = Math.min(internalWidth, internalHeight) * 0.8;
+        ocrCropRef.current = {
+          x: (internalWidth - size) / 2,
+          y: (internalHeight - size) / 2,
+          size
+        };
+      }
+    } catch (err) {
+      console.error("Sobel detection error:", err);
+      const size = Math.min(internalWidth, internalHeight) * 0.8;
+      ocrCropRef.current = {
+        x: (internalWidth - size) / 2,
+        y: (internalHeight - size) / 2,
+        size
+      };
+    }
+
+    updateOcrCropOverlayVisual();
+    cropAndPredictOcr();
+  };
+
+  const findOcrMax = (arr: Float32Array, a: number, b: number) => {
+    let maxVal = -1;
+    let maxIdx = 0;
+    for (let i = a; i < b; i++) {
+      if (i >= 0 && i < arr.length) {
+        if (arr[i] > maxVal) {
+          maxVal = arr[i];
+          maxIdx = i;
+        }
+      }
+    }
+    return { max: maxVal, idx: maxIdx };
+  };
+
+  // Chess OCR: Crop and perform model prediction
+  const cropAndPredictOcr = async () => {
+    const img = ocrImageRef.current;
+    const resultCanvas = ocrResultCanvasRef.current;
+    const predictor = ocrPredictorRef.current;
+    if (!img || !resultCanvas || !predictor) return;
+
+    setOcrPredicting(true);
+    setOcrError(null);
+
+    const ctx = resultCanvas.getContext('2d');
+    if (!ctx) {
+      setOcrPredicting(false);
+      return;
+    }
+
+    resultCanvas.width = 256;
+    resultCanvas.height = 256;
+    ctx.imageSmoothingQuality = "high";
+
+    const scale = img.width / 512;
+    const { x, y, size } = ocrCropRef.current;
+    const sourceX = x * scale;
+    const sourceY = y * scale;
+    const sourceSize = size * scale;
+
+    ctx.drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, 256, 256);
+
+    const imgData = ctx.getImageData(0, 0, 256, 256);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const avg = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+      data[i] = avg;
+      data[i+1] = avg;
+      data[i+2] = avg;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    try {
+      const tf = (window as any).tf;
+      
+      const imgTensor = tf.fromPixels(resultCanvas).asType('float32');
+      
+      const files = [];
+      for (let i = 0; i < 8; i++) {
+        files[i] = imgTensor.slice([0, 32 * i, 0], [256, 32, 1]).reshape([8, 1024]);
+      }
+      const tiles = tf.concat(files);
+
+      const output = predictor.execute({
+        Input: tiles,
+        KeepProb: tf.scalar(1.0)
+      });
+
+      const predictions = output.dataSync();
+
+      const pieceMap = '1KQRBNPkqrbnp';
+      const newBoardState = Array(8).fill(null).map(() => Array(8).fill('1'));
+      for (let rank = 0; rank < 8; rank++) {
+        for (let file = 0; file < 8; file++) {
+          const predIndex = rank + file * 8;
+          newBoardState[rank][file] = pieceMap[predictions[predIndex]];
+        }
+      }
+
+      setOcrBoardState(newBoardState);
+      
+      imgTensor.dispose();
+      tiles.dispose();
+      output.dispose();
+    } catch (err: any) {
+      console.error("TFJS prediction error:", err);
+      setOcrError(language === 'ko' ? "기물 위치 인식 중 오류가 발생했습니다." : "Error occurred during piece prediction.");
+    } finally {
+      setOcrPredicting(false);
+    }
+  };
+
+  // Convert OCR board array to FEN string
+  const getOcrBoardFEN = () => {
+    const fenRows = [];
+    for (let rank = 0; rank < 8; rank++) {
+      let emptyCount = 0;
+      let rowStr = '';
+      for (let file = 0; file < 8; file++) {
+        const piece = ocrBoardState[rank][file];
+        if (piece === '1') {
+          emptyCount++;
+        } else {
+          if (emptyCount > 0) {
+            rowStr += emptyCount;
+            emptyCount = 0;
+          }
+          rowStr += piece;
+        }
+      }
+      if (emptyCount > 0) {
+        rowStr += emptyCount;
+      }
+      fenRows.push(rowStr);
+    }
+    return fenRows.join('/') + " w KQkq - 0 1";
+  };
+
+  // Drag & Resize handles for Crop Overlay in React
+  const handleOcrOverlayMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const overlay = ocrCropOverlayRef.current;
+    if (!overlay) return;
+
+    let isResizing = false;
+    let activeHandle: string | null = null;
+
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('ocr-crop-handle')) {
+      isResizing = true;
+      activeHandle = target.classList[1]; // tl, tr, bl, br
+    }
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    
+    const startCropX = ocrCropRef.current.x;
+    const startCropY = ocrCropRef.current.y;
+    const startCropSize = ocrCropRef.current.size;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const canvas = ocrCanvasRef.current;
+      if (!canvas) return;
+
+      const visualWidth = canvas.clientWidth;
+      const scale = 512 / visualWidth;
+
+      const deltaX = (moveEvent.clientX - startX) * scale;
+      const deltaY = (moveEvent.clientY - startY) * scale;
+
+      if (!isResizing) {
+        // Dragging crop box
+        ocrCropRef.current.x = Math.max(0, Math.min(512 - ocrCropRef.current.size, startCropX + deltaX));
+        ocrCropRef.current.y = Math.max(0, Math.min(canvas.height - ocrCropRef.current.size, startCropY + deltaY));
+      } else {
+        // Resizing crop box
+        let sizeChange = 0;
+        switch (activeHandle) {
+          case 'br':
+            sizeChange = Math.max(deltaX, deltaY);
+            ocrCropRef.current.size = Math.max(80, Math.min(Math.min(512 - ocrCropRef.current.x, canvas.height - ocrCropRef.current.y), startCropSize + sizeChange));
+            break;
+          case 'bl':
+            sizeChange = Math.max(-deltaX, deltaY);
+            const newSizeBL = Math.max(80, Math.min(Math.min(startCropX + startCropSize, canvas.height - ocrCropRef.current.y), startCropSize + sizeChange));
+            const diffBL = newSizeBL - startCropSize;
+            ocrCropRef.current.x = startCropX - diffBL;
+            ocrCropRef.current.size = newSizeBL;
+            break;
+          case 'tr':
+            sizeChange = Math.max(deltaX, -deltaY);
+            const newSizeTR = Math.max(80, Math.min(Math.min(512 - ocrCropRef.current.x, startCropY + startCropSize), startCropSize + sizeChange));
+            const diffTR = newSizeTR - startCropSize;
+            ocrCropRef.current.y = startCropY - diffTR;
+            ocrCropRef.current.size = newSizeTR;
+            break;
+          case 'tl':
+            sizeChange = Math.max(-deltaX, -deltaY);
+            const newSizeTL = Math.max(80, Math.min(Math.min(startCropX + startCropSize, startCropY + startCropSize), startCropSize + sizeChange));
+            const diffTL = newSizeTL - startCropSize;
+            ocrCropRef.current.x = startCropX - diffTL;
+            ocrCropRef.current.y = startCropY - diffTL;
+            ocrCropRef.current.size = newSizeTL;
+            break;
+        }
+      }
+      updateOcrCropOverlayVisual();
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      cropAndPredictOcr();
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    e.preventDefault();
+  };
 
   // Chess Clock tick mechanism (Runs in tenths of a second)
   useEffect(() => {
@@ -2500,22 +2931,322 @@ export default function Home() {
 
         {/* OCR View */}
         {moreSubView === 'ocr' && (
-          <div className="space-y-5">
+          <div className="space-y-4">
             {renderSubHeader('Chess OCR')}
-            <div className="border-2 border-dashed border-stone-800 rounded-2xl p-8 text-center space-y-4 my-6 bg-stone-900/10">
-              <div className="text-4xl">📷</div>
-              <div className="space-y-1">
-                <span className="font-extrabold text-xs block">{language === 'ko' ? '기보 이미지 업로드' : 'Upload Chessboard Image'}</span>
-                <span className="text-[10px] text-slate-500 block">{language === 'ko' ? '사진 속 체스판 국면을 스캔하여 복사합니다.' : 'Scans chessboard layout from photo'}</span>
+            
+            {/* Loading Overlay */}
+            {ocrModelLoading && (
+              <div className="flex flex-col items-center justify-center p-12 border border-stone-850 bg-stone-900/40 rounded-2xl gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                <div className="text-xs font-bold text-slate-350">
+                  {language === 'ko' ? '인공지능 분석 모델 로딩 중...' : 'Loading AI Scanner Model...'}
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  {language === 'ko' ? '첫 실행 시 약 5~10초 정도 소요될 수 있습니다.' : 'May take 5-10 seconds on first run.'}
+                </div>
               </div>
-              <input type="file" disabled className="hidden" id="ocr-upload" />
-              <label htmlFor="ocr-upload" className="inline-block bg-blue-600/30 text-blue-400 font-bold px-4 py-2 rounded-xl text-xs cursor-not-allowed select-none">
-                {language === 'ko' ? '준비 중...' : 'Coming Soon...'}
-              </label>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed font-semibold italic text-center">
-              "{language === 'ko' ? '체스 판 이미지 판독(OCR) 기능 준비 중입니다. 휴대폰으로 촬영한 체스판 배치 이미지를 분석 기보 FEN으로 즉시 정적 인코딩하는 기능이 제공될 예정입니다!' : 'Chess OCR module is in preparation. Soon you will be able to capture real chessboards and import them!'}"
-            </p>
+            )}
+
+            {!ocrModelLoading && (
+              <div className="space-y-4">
+                {/* Error Banner */}
+                {ocrError && (
+                  <div className="p-3 bg-red-950/60 border border-red-900/50 rounded-xl text-[10px] font-bold text-red-400">
+                    ⚠️ {ocrError}
+                  </div>
+                )}
+
+                {/* Upload Section (If no image uploaded yet) */}
+                {!ocrImageSrc ? (
+                  <div 
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-blue-950/20', 'border-blue-500/50'); }}
+                    onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('bg-blue-950/20', 'border-blue-500/50'); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove('bg-blue-950/20', 'border-blue-500/50');
+                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        handleOcrFile(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    onClick={() => document.getElementById('ocr-file-input')?.click()}
+                    className="border-2 border-dashed border-stone-800 hover:border-blue-500/40 rounded-2xl p-10 text-center space-y-4 my-2 bg-stone-900/10 cursor-pointer transition-all hover:bg-stone-900/20"
+                  >
+                    <div className="text-4xl text-blue-500">📸</div>
+                    <div className="space-y-1">
+                      <span className="font-extrabold text-xs block text-slate-300">
+                        {language === 'ko' ? '체스판 이미지 업로드' : 'Upload Chessboard Image'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 block">
+                        {language === 'ko' ? '여기에 이미지를 드래그하거나 클릭하여 선택하세요.' : 'Drag & drop image here or click to browse'}
+                      </span>
+                      <span className="text-[9px] text-blue-500 font-semibold block pt-1">
+                        {language === 'ko' ? '💡 팁: 클립보드 복사(Ctrl+V) 붙여넣기도 바로 작동합니다!' : '💡 Tip: Clipboard paste (Ctrl+V) is also supported!'}
+                      </span>
+                    </div>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      id="ocr-file-input" 
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleOcrFile(e.target.files[0]);
+                        }
+                      }}
+                    />
+                  </div>
+                ) : (
+                  // Crop Overlay View
+                  <div className="space-y-4">
+                    <div className="relative mx-auto rounded-xl overflow-hidden border border-stone-800 bg-stone-950 flex justify-center items-center max-w-full">
+                      {/* Visual canvas showing loaded image scaled to 512px internal */}
+                      <canvas 
+                        ref={ocrCanvasRef} 
+                        id="ocrImageCanvas" 
+                        className="max-w-full h-auto block select-none"
+                      />
+
+                      {/* Hidden canvas for TFJS input processing */}
+                      <canvas ref={ocrResultCanvasRef} id="ocrResultCanvas" className="hidden" />
+
+                      {/* Draggable Crop Overlay */}
+                      <div 
+                        ref={ocrCropOverlayRef} 
+                        id="ocrCropOverlay" 
+                        onMouseDown={handleOcrOverlayMouseDown}
+                        className="absolute border-2 border-dashed border-blue-500 bg-blue-500/15 cursor-move"
+                        style={{ display: 'none' }}
+                      >
+                        <div className="absolute w-3 h-3 bg-blue-500 rounded-full border border-white -top-1.5 -left-1.5 cursor-nwse-resize ocr-crop-handle tl" />
+                        <div className="absolute w-3 h-3 bg-blue-500 rounded-full border border-white -top-1.5 -right-1.5 cursor-nesw-resize ocr-crop-handle tr" />
+                        <div className="absolute w-3 h-3 bg-blue-500 rounded-full border border-white -bottom-1.5 -left-1.5 cursor-nesw-resize ocr-crop-handle bl" />
+                        <div className="absolute w-3 h-3 bg-blue-500 rounded-full border border-white -bottom-1.5 -right-1.5 cursor-nwse-resize ocr-crop-handle br" />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          setOcrImageSrc(null);
+                          setOcrBoardState(Array(8).fill(null).map(() => Array(8).fill('1')));
+                        }}
+                        className="flex-1 bg-stone-850 hover:bg-stone-800 text-slate-350 font-bold py-2 rounded-xl text-[10px] cursor-pointer"
+                      >
+                        {language === 'ko' ? '다른 이미지 선택' : 'Change Image'}
+                      </button>
+                      <button 
+                        onClick={() => setOcrIsFlipped(!ocrIsFlipped)}
+                        className="bg-stone-850 hover:bg-stone-800 text-slate-350 font-bold px-3 py-2 rounded-xl text-[10px] cursor-pointer"
+                        title={language === 'ko' ? '보드 시각적 뒤집기' : 'Flip Board Visually'}
+                      >
+                        🔄
+                      </button>
+                      <button 
+                        onClick={() => {
+                          // Rotate pieces 180 deg
+                          const newBoard = Array(8).fill(null).map(() => Array(8).fill('1'));
+                          for (let r = 0; r < 8; r++) {
+                            for (let f = 0; f < 8; f++) {
+                              newBoard[7 - r][7 - f] = ocrBoardState[r][f];
+                            }
+                          }
+                          setOcrBoardState(newBoard);
+                        }}
+                        className="bg-stone-850 hover:bg-stone-800 text-slate-355 font-bold px-3 py-2 rounded-xl text-[10px] cursor-pointer"
+                        title={language === 'ko' ? '기물 180도 회전' : 'Rotate Board 180°'}
+                      >
+                        🔃
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Editor & Results Board */}
+                {ocrImageSrc && (
+                  <div className="space-y-4 pt-2 border-t border-stone-850">
+                    <div className="text-[10px] font-bold text-slate-400">
+                      {language === 'ko' ? '2. 인식된 기물 배치 편집기' : '2. Scanned Board Editor'}
+                    </div>
+
+                    {ocrPredicting && (
+                      <div className="flex items-center justify-center gap-2 py-4 italic text-[10px] text-blue-400 font-bold">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {language === 'ko' ? '기물 배치 분석 중...' : 'Predicting board layout...'}
+                      </div>
+                    )}
+
+                    {/* Premium Styled 8x8 Board */}
+                    <div className="aspect-square w-full max-w-[320px] mx-auto rounded-xl overflow-hidden shadow-lg border border-stone-800 relative bg-stone-900 select-none">
+                      <div className="grid grid-cols-8 grid-rows-8 h-full w-full">
+                        {Array(8).fill(null).map((_, rIdx) => {
+                          const rank = ocrIsFlipped ? 7 - rIdx : rIdx;
+                          return Array(8).fill(null).map((_, fIdx) => {
+                            const file = ocrIsFlipped ? 7 - fIdx : fIdx;
+                            const isDarkSq = (rank + file) % 2 === 1;
+                            const piece = ocrBoardState[rank][file];
+                            const isSelected = ocrActiveEditSquare?.rank === rank && ocrActiveEditSquare?.file === file;
+
+                            return (
+                              <div 
+                                key={`${rank}-${file}`}
+                                onClick={() => {
+                                  setOcrActiveEditSquare({ rank, file });
+                                  setOcrShowSelector(true);
+                                }}
+                                className={`relative aspect-square flex items-center justify-center cursor-pointer transition-colors duration-150 ${
+                                  isDarkSq ? 'bg-[#739552]' : 'bg-[#ececd7]'
+                                } ${isSelected ? 'ring-4 ring-blue-500 ring-inset z-10' : 'hover:brightness-95'}`}
+                              >
+                                {piece !== '1' && (
+                                  <img 
+                                    src={`https://lichess1.org/assets/piece/cburnett/${
+                                      (piece === piece.toUpperCase() ? 'w' : 'b') + piece.toUpperCase()
+                                    }.svg`}
+                                    alt={piece}
+                                    className="w-[85%] h-[85%] pointer-events-none select-none transition-transform duration-200"
+                                  />
+                                )}
+                                
+                                {/* Coords labels */}
+                                {fIdx === 0 && (
+                                  <span className={`absolute top-0.5 left-0.5 text-[8px] font-bold ${
+                                    isDarkSq ? 'text-[#ececd7]' : 'text-[#739552]'
+                                  }`}>
+                                    {8 - rank}
+                                  </span>
+                                )}
+                                {rIdx === 7 && (
+                                  <span className={`absolute bottom-0.5 right-0.5 text-[8px] font-bold ${
+                                    isDarkSq ? 'text-[#ececd7]' : 'text-[#739552]'
+                                  }`}>
+                                    {String.fromCharCode(97 + file)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          });
+                        })}
+                      </div>
+                    </div>
+
+                    {/* FEN text box & copy */}
+                    <div className="space-y-1.5">
+                      <span className="text-[9px] font-bold text-slate-500 block">
+                        {language === 'ko' ? '인식된 FEN 코드' : 'Scanned FEN String'}
+                      </span>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          readOnly 
+                          value={getOcrBoardFEN()}
+                          className="flex-1 bg-stone-900 text-slate-350 border border-stone-850 px-3 py-1.5 rounded-xl font-mono text-[9px] outline-none"
+                        />
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(getOcrBoardFEN());
+                            alert(language === 'ko' ? "FEN 복사 완료!" : "FEN Copied!");
+                          }}
+                          className="bg-stone-850 hover:bg-stone-800 text-slate-300 font-bold px-3.5 py-1.5 rounded-xl text-[10px] cursor-pointer shrink-0"
+                        >
+                          {language === 'ko' ? '복사' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Action Button: Open in analyze board */}
+                    <button 
+                      onClick={() => {
+                        const fen = getOcrBoardFEN();
+                        const initialNode = {
+                          id: 'root',
+                          san: '',
+                          from: '',
+                          to: '',
+                          fen: fen,
+                          parentId: null,
+                          children: []
+                        };
+                        setMoveTree({ 'root': initialNode });
+                        setCurrentNodeId('root');
+                        setActiveTab('analyze');
+                        alert(language === 'ko' ? "분석판으로 포지션을 전송했습니다!" : "Position loaded to analysis board!");
+                      }}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2.5 rounded-xl text-xs cursor-pointer shadow-lg shadow-blue-500/10 flex items-center justify-center gap-1.5"
+                    >
+                      🚀 {language === 'ko' ? '자유 분석판에서 열기' : 'Open in Analyze Board'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Piece Selector Popup */}
+            {ocrShowSelector && ocrActiveEditSquare && (
+              <div 
+                className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+                onClick={() => {
+                  setOcrShowSelector(false);
+                  setOcrActiveEditSquare(null);
+                }}
+              >
+                <div 
+                  className="bg-stone-900 border border-stone-850 rounded-2xl p-5 max-w-[280px] w-full text-center space-y-4 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="text-[10px] font-bold text-slate-400">
+                    {language === 'ko' ? '기물 변경 선택' : 'Select Piece'}
+                  </div>
+                  <div className="grid grid-cols-6 gap-2">
+                    {['P', 'R', 'N', 'B', 'Q', 'K', 'p', 'r', 'n', 'b', 'q', 'k'].map((p) => {
+                      const isWhite = p === p.toUpperCase();
+                      const code = (isWhite ? 'w' : 'b') + p.toUpperCase();
+                      return (
+                        <button 
+                          key={p}
+                          onClick={() => {
+                            const newBoard = [...ocrBoardState];
+                            newBoard[ocrActiveEditSquare.rank][ocrActiveEditSquare.file] = p;
+                            setOcrBoardState(newBoard);
+                            setOcrShowSelector(false);
+                            setOcrActiveEditSquare(null);
+                          }}
+                          className="aspect-square bg-stone-850 hover:bg-stone-800 rounded-lg p-1.5 flex items-center justify-center border border-stone-800/50 cursor-pointer"
+                        >
+                          <img 
+                            src={`https://lichess1.org/assets/piece/cburnett/${code}.svg`}
+                            alt={p}
+                            className="w-full h-full select-none pointer-events-none"
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        const newBoard = [...ocrBoardState];
+                        newBoard[ocrActiveEditSquare.rank][ocrActiveEditSquare.file] = '1';
+                        setOcrBoardState(newBoard);
+                        setOcrShowSelector(false);
+                        setOcrActiveEditSquare(null);
+                      }}
+                      className="flex-1 bg-red-950/60 hover:bg-red-900/60 text-red-400 border border-red-900/40 font-bold py-1.5 rounded-xl text-[10px] cursor-pointer"
+                    >
+                      {language === 'ko' ? '빈 칸으로 비우기' : 'Clear Square'}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setOcrShowSelector(false);
+                        setOcrActiveEditSquare(null);
+                      }}
+                      className="bg-stone-800 hover:bg-stone-750 text-slate-300 font-bold px-4 py-1.5 rounded-xl text-[10px] cursor-pointer"
+                    >
+                      {language === 'ko' ? '취소' : 'Cancel'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
