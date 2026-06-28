@@ -1343,21 +1343,34 @@ export default function Home() {
 
   // Chess OCR: Handle Image File upload and run auto edge detection
   const handleOcrFile = (file: File) => {
+    setOcrError(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       if (e.target?.result) {
         setOcrImageSrc(e.target.result as string);
-        setOcrError(null);
         
         const img = new Image();
+        img.crossOrigin = "anonymous";
         img.onload = () => {
           ocrImageRef.current = img;
           processOcrImage(img);
         };
+        img.onerror = () => {
+          setOcrError(language === 'ko' ? "이미지를 로드하는 중 오류가 발생했습니다." : "Error loading image file.");
+        };
         img.src = e.target.result as string;
       }
     };
-    reader.readAsDataURL(file);
+    reader.onerror = (err) => {
+      console.error("FileReader error:", err);
+      setOcrError(language === 'ko' ? "파일을 읽는 도중 오류가 발생했습니다. 권한 설정이나 손상 여부를 확인하세요." : "Error reading file. Check file permissions.");
+    };
+    try {
+      reader.readAsDataURL(file);
+    } catch (e: any) {
+      console.error("FileReader read error:", e);
+      setOcrError(language === 'ko' ? "파일을 시작하는 데 실패했습니다." : "Failed to start reading file.");
+    }
   };
 
   // Chess OCR: Sobel edge detection & auto-snapping grid coordinates
@@ -1373,7 +1386,13 @@ export default function Home() {
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.drawImage(img, 0, 0, internalWidth, internalHeight);
+    try {
+      ctx.drawImage(img, 0, 0, internalWidth, internalHeight);
+    } catch (e: any) {
+      console.error("Canvas drawImage error:", e);
+      setOcrError(language === 'ko' ? "보안 정책(CORS)으로 인해 외부 도메인 이미지를 캔버스에 그릴 수 없습니다." : "Cannot draw external domain image to canvas due to CORS.");
+      return;
+    }
 
     const Filters = (window as any).Filters;
     if (!Filters) {
@@ -1536,7 +1555,17 @@ export default function Home() {
       return;
     }
 
-    const imgData = ctx.getImageData(0, 0, 256, 256);
+    let imgData;
+    try {
+      imgData = ctx.getImageData(0, 0, 256, 256);
+    } catch (e: any) {
+      console.error("Canvas read security error:", e);
+      setOcrError(language === 'ko' 
+        ? "보안 정책(CORS)으로 인해 외부 이미지를 직접 스캔할 수 없습니다. 이미지를 PC에 저장한 후 업로드하거나, 스크린샷 복사 후 Ctrl+V로 붙여넣어주세요!" 
+        : "Cannot read external web images due to CORS. Please save the image to your computer first, or paste it using Ctrl+V!");
+      setOcrPredicting(false);
+      return;
+    }
     const data = imgData.data;
     for (let i = 0; i < data.length; i += 4) {
       const avg = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
