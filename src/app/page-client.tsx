@@ -426,6 +426,8 @@ export default function Home() {
   const [showMaterialDifference, setShowMaterialDifference] = useState<boolean>(true);
   const [engineLinesCount, setEngineLinesCount] = useState<number>(2);
   const [explorerDb, setExplorerDb] = useState<'lichess' | 'masters'>('lichess');
+  const [explorerSpeeds, setExplorerSpeeds] = useState<string[]>(['blitz', 'rapid', 'classical']);
+  const [explorerRatings, setExplorerRatings] = useState<string[]>(['1600', '1800', '2000', '2200', '2500']);
   const [bestMoveArrowEnabled, setBestMoveArrowEnabled] = useState<boolean>(true);
   const [isAnalyzeEngineEnabled, setIsAnalyzeEngineEnabled] = useState<boolean>(true);
   const [analyzeSubTab, setAnalyzeSubTab] = useState<'BOOK' | 'TREE' | 'SETTINGS'>('BOOK');
@@ -1195,7 +1197,15 @@ export default function Home() {
       
       try {
         const dbParam = explorerDb === 'masters' ? 'masters' : 'lichess';
-        const url = `/api/explorer?db=${dbParam}&fen=${encodeURIComponent(activeFen)}`;
+        let url = `/api/explorer?db=${dbParam}&fen=${encodeURIComponent(activeFen)}`;
+        if (dbParam === 'lichess') {
+          if (explorerSpeeds.length > 0) {
+            url += `&speeds=${explorerSpeeds.join(',')}`;
+          }
+          if (explorerRatings.length > 0) {
+            url += `&ratings=${explorerRatings.join(',')}`;
+          }
+        }
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
@@ -1210,7 +1220,7 @@ export default function Home() {
     
     const debounce = setTimeout(fetchOpeningData, 300);
     return () => clearTimeout(debounce);
-  }, [activeAnalysisFen, activeTab, analyzeSubTab, explorerDb]);
+  }, [activeAnalysisFen, activeTab, analyzeSubTab, explorerDb, explorerSpeeds.join(','), explorerRatings.join(',')]);
 
   // Chess OCR: Load TensorFlow.js and Filters.js scripts dynamically
   useEffect(() => {
@@ -3689,12 +3699,74 @@ export default function Home() {
                 </div>
                 
                 {/* 1. Explorer Settings */}
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">{language === 'ko' ? '오프닝 탐색기 설정' : 'Opening Explorer'}</label>
                   <div className={`grid grid-cols-2 gap-1 p-0.5 rounded-lg border ${isDark ? 'bg-stone-950/40 border-stone-850' : 'bg-stone-100 border-stone-250'}`}>
                     <button onClick={() => setExplorerDb('lichess')} className={`py-1 rounded text-[9px] font-black transition-all cursor-pointer ${explorerDb === 'lichess' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>Lichess</button>
                     <button onClick={() => setExplorerDb('masters')} className={`py-1 rounded text-[9px] font-black transition-all cursor-pointer ${explorerDb === 'masters' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>Masters</button>
                   </div>
+
+                  {explorerDb === 'lichess' && (
+                    <div className="space-y-2 mt-1.5 pt-1.5 border-t border-stone-800/20">
+                      {/* Lichess Speed Controls */}
+                      <div className="space-y-1">
+                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider block">{language === 'ko' ? '시간 조절 (Speed)' : 'Speed Filters'}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {['bullet', 'blitz', 'rapid', 'classical'].map((speed) => {
+                            const isSel = explorerSpeeds.includes(speed);
+                            return (
+                              <button 
+                                key={speed}
+                                onClick={() => {
+                                  if (isSel) {
+                                    setExplorerSpeeds(explorerSpeeds.filter(s => s !== speed));
+                                  } else {
+                                    setExplorerSpeeds([...explorerSpeeds, speed]);
+                                  }
+                                }}
+                                className={`px-2 py-0.5 rounded text-[8px] font-bold cursor-pointer transition-all border ${
+                                  isSel 
+                                    ? 'bg-blue-600/20 border-blue-500 text-blue-400' 
+                                    : (isDark ? 'bg-stone-900 border-stone-800 text-slate-400 hover:border-slate-700' : 'bg-stone-50 border-stone-200 text-slate-605 hover:border-slate-350')
+                                }`}
+                              >
+                                {speed.charAt(0).toUpperCase() + speed.slice(1)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Lichess Ratings */}
+                      <div className="space-y-1">
+                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider block">{language === 'ko' ? '유저 레이팅 (Rating)' : 'Rating Filters'}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {['1600', '1800', '2000', '2200', '2500'].map((rating) => {
+                            const isSel = explorerRatings.includes(rating);
+                            return (
+                              <button 
+                                key={rating}
+                                onClick={() => {
+                                  if (isSel) {
+                                    setExplorerRatings(explorerRatings.filter(r => r !== rating));
+                                  } else {
+                                    setExplorerRatings([...explorerRatings, rating]);
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded text-[8px] font-bold cursor-pointer transition-all border ${
+                                  isSel 
+                                    ? 'bg-blue-600/20 border-blue-500 text-blue-400' 
+                                    : (isDark ? 'bg-stone-900 border-stone-800 text-slate-400 hover:border-slate-700' : 'bg-stone-50 border-stone-200 text-slate-605 hover:border-slate-350')
+                                }`}
+                              >
+                                {rating === '2500' ? '2500+' : rating}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 2. Engine Settings */}
@@ -3909,21 +3981,24 @@ export default function Home() {
                     const dPct = total > 0 ? (move.draws / total) * 100 : 0;
                     const bPct = total > 0 ? (move.black / total) * 100 : 0;
                     return (
-                      <div key={idx} className="flex items-center justify-between text-[10px] font-bold border-b border-stone-800/20 pb-1.5 pt-0.5">
+                      <div key={idx} className="flex items-center justify-between text-[12px] font-bold border-b border-stone-800/20 pb-2 pt-1">
                         <button 
                           onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
-                          className="w-10 text-left text-blue-500 hover:underline font-black cursor-pointer"
+                          className="w-12 text-left text-blue-500 hover:underline font-black cursor-pointer text-[13px]"
                         >
                           {move.san}
                         </button>
-                        <div className="flex-1 max-w-[120px] h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner">
-                          <div style={{ width: `${wPct}%` }} className="bg-slate-200 h-full" title={`W: ${Math.round(wPct)}%`} />
-                          <div style={{ width: `${dPct}%` }} className="bg-slate-400 h-full" title={`D: ${Math.round(dPct)}%`} />
-                          <div style={{ width: `${bPct}%` }} className="bg-slate-800 h-full" title={`B: ${Math.round(bPct)}%`} />
+                        <div className="flex items-center gap-1.5 flex-1 justify-center mx-2 shrink-0">
+                          <span className="text-[10px] text-slate-400 font-extrabold w-8 text-right shrink-0">{Math.round(wPct)}%</span>
+                          <div className="flex-1 h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner max-w-[80px]">
+                            <div style={{ width: `${wPct}%` }} className="bg-slate-200 h-full" title={`W: ${Math.round(wPct)}%`} />
+                            <div style={{ width: `${dPct}%` }} className="bg-slate-400 h-full" title={`D: ${Math.round(dPct)}%`} />
+                            <div style={{ width: `${bPct}%` }} className="bg-slate-800 h-full" title={`B: ${Math.round(bPct)}%`} />
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-extrabold w-8 text-left shrink-0">{Math.round(bPct)}%</span>
                         </div>
-                        <div className="w-24 text-right text-[9px] text-slate-450 font-semibold">
-                          <div>{total.toLocaleString()} Games</div>
-                          <div>Avg: {move.averageRating || 'N/A'}</div>
+                        <div className="w-16 text-right text-[11px] text-slate-400 font-extrabold">
+                          {total.toLocaleString()}
                         </div>
                       </div>
                     );
