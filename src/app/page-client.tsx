@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, usePathname } from 'next/navigation';
-import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X, Home as HomeIcon, Clock, BookOpen, GitBranch, HelpCircle, Send, Moon, Sun, ArrowUpRight, Shield, Award, MoreVertical } from 'lucide-react';
+import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X, Home as HomeIcon, Clock, BookOpen, GitBranch, HelpCircle, Send, Moon, Sun, ArrowUpRight, Shield, Award, MoreVertical, Cpu } from 'lucide-react';
 import { ChessAnalyzer, GameAnalysis, MoveAnalysis } from '../lib/analyzer';
 import { generateGifClient } from '../lib/gifGeneratorClient';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
@@ -44,32 +44,37 @@ const uciPvToSan = (fen: string, pv: string): string => {
     let formatted = '';
     for (let i = 0; i < uciMoves.length; i++) {
       const uci = uciMoves[i];
-      if (!uci) continue;
+      if (!uci || uci.length < 4) continue;
       
       const from = uci.slice(0, 2);
       const to = uci.slice(2, 4);
-      const promotion = uci.slice(4, 5) || undefined;
+      const promotion = uci.length > 4 ? uci[4] : undefined;
       
       const activeColor = chess.turn();
-      const moveObj = chess.move({ from, to, promotion });
-      const san = moveObj.san;
-      
-      if (i === 0) {
-        if (activeColor === 'w') {
-          formatted += `${fullmoveNumber}. ${san}`;
+      try {
+        const moveObj = chess.move({ from, to, promotion });
+        if (!moveObj) break;
+        const san = moveObj.san;
+        
+        if (i === 0) {
+          if (activeColor === 'w') {
+            formatted += `${fullmoveNumber}. ${san}`;
+          } else {
+            formatted += `${fullmoveNumber}... ${san}`;
+          }
         } else {
-          formatted += `${fullmoveNumber}... ${san}`;
+          if (activeColor === 'w') {
+            fullmoveNumber++;
+            formatted += ` ${fullmoveNumber}. ${san}`;
+          } else {
+            formatted += ` ${san}`;
+          }
         }
-      } else {
-        if (activeColor === 'w') {
-          fullmoveNumber++;
-          formatted += ` ${fullmoveNumber}. ${san}`;
-        } else {
-          formatted += ` ${san}`;
-        }
+      } catch {
+        break; // Stop at first invalid move
       }
     }
-    return formatted;
+    return formatted || pv;
   } catch (err) {
     return pv;
   }
@@ -464,6 +469,9 @@ export default function Home() {
   const [openingData, setOpeningData] = useState<any>(null);
   const [isLoadingOpening, setIsLoadingOpening] = useState<boolean>(false);
   const [bestMoveArrow, setBestMoveArrow] = useState<{ from: string; to: string } | null>(null);
+  const [cloudEvalEnabled, setCloudEvalEnabled] = useState<boolean>(true);
+  const [cloudEvalData, setCloudEvalData] = useState<{ depth: number; pvs: { moves: string; cp?: number; mate?: number }[] } | null>(null);
+  const [cloudEvalExhausted, setCloudEvalExhausted] = useState<boolean>(false);
 
   // Feedback & Proposals
   const [feedbackEmail, setFeedbackEmail] = useState<string>('');
@@ -1101,57 +1109,61 @@ export default function Home() {
     
     worker.onmessage = (e) => {
       const msg = e.data as string;
-      if (msg.startsWith('info') && msg.includes('multipv')) {
-        const depthMatch = msg.match(/depth (\d+)/);
-        const multipvMatch = msg.match(/multipv (\d+)/);
-        const pvMatch = msg.match(/ pv (.*)$/);
+      // Skip non-info lines, info string lines, and currmove lines
+      if (!msg.startsWith('info') || msg.includes('info string') || msg.includes('currmove')) return;
+      if (!msg.includes('multipv') || !msg.includes(' pv ')) return;
+      // Skip lowerbound/upperbound partial results
+      if (msg.includes('lowerbound') || msg.includes('upperbound')) return;
+      
+      const depthMatch = msg.match(/\bdepth (\d+)/);
+      const multipvMatch = msg.match(/\bmultipv (\d+)/);
+      const pvMatch = msg.match(/ pv (.+)$/);
+      
+      if (multipvMatch && pvMatch) {
+        const multipv = parseInt(multipvMatch[1], 10);
+        const pv = pvMatch[1].trim();
         
-        if (multipvMatch && pvMatch) {
-          const multipv = parseInt(multipvMatch[1], 10);
-          const pv = pvMatch[1];
+        let score = 0;
+        let isMate = false;
+        
+        const cpMatch = msg.match(/\bscore cp (-?\d+)/);
+        if (cpMatch) {
+          score = parseInt(cpMatch[1], 10);
+        }
+        const mateMatch = msg.match(/\bscore mate (-?\d+)/);
+        if (mateMatch) {
+          score = parseInt(mateMatch[1], 10);
+          isMate = true;
+        }
+        
+        const currentDepth = depthMatch ? parseInt(depthMatch[1], 10) : 0;
+        if (currentDepth >= 4) {
+          // Choose active FEN for SAN translation
+          const activeFenVal = activeTab === 'analyze'
+            ? (moveTreeRef.current[currentNodeIdRef.current]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')
+            : fenRef.current;
+          const sanPv = uciPvToSan(activeFenVal, pv);
           
-          let score = 0;
-          let isMate = false;
-          
-          const cpMatch = msg.match(/score cp (-?\d+)/);
-          if (cpMatch) {
-            score = parseInt(cpMatch[1], 10);
-          }
-          const mateMatch = msg.match(/score mate (-?\d+)/);
-          if (mateMatch) {
-            score = parseInt(mateMatch[1], 10);
-            isMate = true;
-          }
-          
-          const currentDepth = depthMatch ? parseInt(depthMatch[1], 10) : 0;
-          if (currentDepth >= 4) {
-            // Choose active FEN for SAN translation
-            const activeFenVal = activeTab === 'analyze'
-              ? (moveTreeRef.current[currentNodeIdRef.current]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')
-              : fenRef.current;
-            const sanPv = uciPvToSan(activeFenVal, pv);
-            
-            tempLinesRef.current[multipv] = {
-              multipv,
-              score,
-              isMate,
-              pv: sanPv
-            };
+          tempLinesRef.current[multipv] = {
+            multipv,
+            score,
+            isMate,
+            pv: sanPv
+          };
 
-            // Set engine best move arrow coord
-            if (multipv === 1 && pv) {
-              const firstMoveUci = pv.split(' ')[0];
-              if (firstMoveUci && firstMoveUci.length >= 4) {
-                setBestMoveArrow({
-                  from: firstMoveUci.slice(0, 2),
-                  to: firstMoveUci.slice(2, 4)
-                });
-              }
+          // Set engine best move arrow coord
+          if (multipv === 1 && pv) {
+            const firstMoveUci = pv.split(' ')[0];
+            if (firstMoveUci && firstMoveUci.length >= 4) {
+              setBestMoveArrow({
+                from: firstMoveUci.slice(0, 2),
+                to: firstMoveUci.slice(2, 4)
+              });
             }
-
-            const sortedLines = Object.values(tempLinesRef.current).sort((a, b) => a.multipv - b.multipv);
-            setEngineLines(sortedLines);
           }
+
+          const sortedLines = Object.values(tempLinesRef.current).sort((a, b) => a.multipv - b.multipv);
+          setEngineLines(sortedLines);
         }
       }
     };
@@ -1168,6 +1180,29 @@ export default function Home() {
     }
     return '';
   }, [activeTab, moveTree, currentNodeId]);
+
+  // Lichess Cloud Eval API integration
+  useEffect(() => {
+    if (activeTab !== 'analyze' || !cloudEvalEnabled || cloudEvalExhausted || !isAnalyzeEngineEnabled) {
+      setCloudEvalData(null);
+      return;
+    }
+    const fen = moveTree[currentNodeId]?.fen;
+    if (!fen) return;
+    
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=3`);
+        if (res.status === 404) { setCloudEvalData(null); return; }
+        if (res.status === 429) { setCloudEvalExhausted(true); setCloudEvalData(null); return; }
+        if (!res.ok) { setCloudEvalData(null); return; }
+        const data = await res.json();
+        setCloudEvalData(data);
+      } catch { setCloudEvalData(null); }
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [activeTab, currentNodeId, moveTree, cloudEvalEnabled, cloudEvalExhausted, isAnalyzeEngineEnabled]);
 
   // Keep refs in sync for Web Worker onmessage closure
   const moveTreeRef = useRef(moveTree);
@@ -2357,7 +2392,7 @@ export default function Home() {
       const isWhite = node.fen.split(' ')[1] === 'b';
       const parts = node.fen.split(' ');
       const fullmove = parseInt(parts[5], 10);
-      const moveNum = isWhite ? fullmove - 1 : fullmove;
+      const moveNum = isWhite ? fullmove : fullmove;
       
       let label = '';
       if (isWhite) {
@@ -3892,7 +3927,7 @@ export default function Home() {
                       <div className="space-y-1">
                         <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider block">{language === 'ko' ? '유저 레이팅 (Rating)' : 'Rating Filters'}</span>
                         <div className="flex flex-wrap gap-1">
-                          {['1600', '1800', '2000', '2200', '2500'].map((rating) => {
+                          {['400', '1000', '1200', '1400', '1600', '1800', '2000', '2200', '2500'].map((rating) => {
                             const isSel = explorerRatings.includes(rating);
                             return (
                               <button 
@@ -3967,33 +4002,19 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* 3. Best Move Arrow Settings */}
+                {/* 3. Cloud Eval Settings */}
                 <div className="space-y-2.5 border-t border-stone-800/40 pt-2.5">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{language === 'ko' ? '최선수 화살표 표시' : 'Show Best Move Arrow'}</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{language === 'ko' ? '클라우드 평가 (Lichess)' : 'Cloud Eval (Lichess)'}</label>
                     <button 
-                      onClick={() => setBestMoveArrowEnabled(prev => !prev)}
-                      className={`w-7 h-4 rounded-full p-0.5 flex items-center transition-all cursor-pointer ${bestMoveArrowEnabled ? 'bg-blue-600 justify-end' : 'bg-stone-850 justify-start'}`}
+                      onClick={() => setCloudEvalEnabled(prev => !prev)}
+                      className={`w-7 h-4 rounded-full p-0.5 flex items-center transition-all cursor-pointer ${cloudEvalEnabled ? 'bg-blue-600 justify-end' : 'bg-stone-850 justify-start'}`}
                     >
                       <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
                     </button>
                   </div>
-                  {bestMoveArrowEnabled && (
-                    <div className="space-y-1 pl-1">
-                      <span className="text-[9px] font-bold text-slate-500 block">{language === 'ko' ? '화살표 색상' : 'Arrow Color'}</span>
-                      <div className="flex gap-2">
-                        {['#10b981', '#ef4444', '#3b82f6', '#eab308'].map(color => (
-                          <button 
-                            key={color}
-                            onClick={() => setArrowColor(color)}
-                            className={`w-5 h-5 rounded-full border transition-all cursor-pointer ${
-                              arrowColor === color ? 'border-white scale-110 shadow-md shadow-black/40 ring-1 ring-blue-500' : 'border-stone-800 hover:scale-105'
-                            }`}
-                            style={{ backgroundColor: color }}
-                          />
-                        ))}
-                      </div>
-                    </div>
+                  {cloudEvalExhausted && (
+                    <span className="text-[8px] text-amber-400 font-bold block">{language === 'ko' ? '⚠️ 일일 한도 초과 — 로컬 엔진만 사용 중' : '⚠️ Daily limit reached — using local engine only'}</span>
                   )}
                 </div>
               </div>
@@ -4006,7 +4027,30 @@ export default function Home() {
           <div className={`px-4 py-1 text-[9px] font-bold border-b flex flex-col gap-0.5 shrink-0 ${
             isDark ? 'bg-stone-900/60 border-stone-850 text-slate-400' : 'bg-stone-50 border-stone-200 text-slate-600'
           }`}>
-            {engineLines.length === 0 ? (
+            {/* Cloud Eval lines (if available) */}
+            {cloudEvalEnabled && cloudEvalData && cloudEvalData.pvs && cloudEvalData.pvs.length > 0 && (
+              <>
+                {cloudEvalData.pvs.slice(0, 3).map((pv, idx) => {
+                  const activeFenVal = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+                  const sanLine = uciPvToSan(activeFenVal, pv.moves);
+                  const isMate = pv.mate !== undefined;
+                  const scoreVal = isMate ? pv.mate! : (pv.cp || 0);
+                  return (
+                    <div key={`cloud-${idx}`} className="flex justify-between items-center py-0.5">
+                      <span className="text-purple-400 font-extrabold w-10 text-center text-[7px]">☁ D{cloudEvalData.depth}</span>
+                      <span className="flex-1 truncate font-mono text-[9px] mx-2 text-slate-350">{sanLine}</span>
+                      <span className={`font-mono font-black shrink-0 px-1 rounded ${
+                        scoreVal >= 0 ? 'bg-green-950 text-green-400' : 'bg-red-950 text-red-400'
+                      }`}>
+                        {isMate ? `M${scoreVal}` : (scoreVal / 100 >= 0 ? `+${(scoreVal / 100).toFixed(2)}` : (scoreVal / 100).toFixed(2))}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            {/* Local Engine lines */}
+            {engineLines.length === 0 && !cloudEvalData ? (
               <span className="flex items-center gap-1.5 italic text-slate-500 py-0.5">
                 <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
                 {language === 'ko' ? '엔진 분석 대기 중...' : 'Engine calculating...'}
@@ -4032,7 +4076,7 @@ export default function Home() {
           <div className="flex gap-2.5 items-stretch w-full max-w-[360px]">
             {/* Evaluation Bar */}
             {isAnalyzeEngineEnabled && (
-              <div className="w-3.5 bg-stone-900 border border-stone-850 rounded-full overflow-hidden flex flex-col relative shrink-0 shadow-inner" style={{ height: '240px' }}>
+              <div className="w-5 bg-stone-900 border border-stone-850 rounded-full overflow-hidden flex flex-col relative shrink-0 shadow-inner" style={{ height: '240px' }}>
                 {boardOrientation === 'white' ? (
                   <>
                     <div className="bg-stone-900 transition-all duration-300 ease-out w-full" style={{ height: `${blackPct}%` }} />
@@ -4044,11 +4088,11 @@ export default function Home() {
                     <div className="bg-stone-900 transition-all duration-300 ease-out w-full flex-1" />
                   </>
                 )}
-                <span className={`absolute text-[8px] font-black pointer-events-none select-none px-1 rounded ${
+                <span className={`absolute left-1/2 -translate-x-1/2 text-[6px] font-black pointer-events-none select-none leading-none ${
                   evalScore >= 0
-                    ? (boardOrientation === 'white' ? 'bottom-1 text-slate-800 bg-white/70' : 'top-1 text-slate-800 bg-white/70')
-                    : (boardOrientation === 'white' ? 'top-1 text-white bg-slate-900/70' : 'bottom-1 text-white bg-slate-900/70')
-                }`}>
+                    ? (boardOrientation === 'white' ? 'bottom-1.5 text-slate-800' : 'top-1.5 text-slate-800')
+                    : (boardOrientation === 'white' ? 'top-1.5 text-white' : 'bottom-1.5 text-white')
+                }`} style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}>
                   {getEvalStr(evalScore)}
                 </span>
               </div>
@@ -4067,9 +4111,7 @@ export default function Home() {
                   lightSquareStyle: { backgroundColor: themeColors.light },
                   showNotation: showCoordinates,
                   pieces: getCustomPieces(),
-                  arrows: bestMoveArrowEnabled && bestMoveArrow 
-                    ? [{ startSquare: bestMoveArrow.from, endSquare: bestMoveArrow.to, color: arrowColor }] 
-                    : [],
+                  arrows: [],
                   squareRenderer: ({ piece, square, children }) => {
                     const isSelected = selectedSquare === square;
                     const isPossible = possibleMoves.includes(square);
@@ -4132,13 +4174,14 @@ export default function Home() {
                     const dPct = total > 0 ? (move.draws / total) * 100 : 0;
                     const bPct = total > 0 ? (move.black / total) * 100 : 0;
                     return (
-                      <div key={idx} className="flex items-center justify-between text-[12px] font-bold border-b border-stone-800/20 pb-2 pt-1">
-                        <button 
-                          onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
-                          className="w-12 text-left text-blue-500 hover:underline font-black cursor-pointer text-[13px]"
-                        >
+                      <div 
+                        key={idx} 
+                        onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
+                        className={`flex items-center justify-between text-[12px] font-bold border-b border-stone-800/20 pb-2 pt-1 cursor-pointer rounded-lg px-1 transition-colors ${isDark ? 'hover:bg-stone-800/50' : 'hover:bg-stone-100'}`}
+                      >
+                        <span className="w-12 text-left text-blue-500 font-black text-[13px]">
                           {move.san}
-                        </button>
+                        </span>
                         <div className="flex items-center gap-1.5 flex-1 justify-center mx-2 shrink-0">
                           <span className="text-[10px] text-slate-400 font-extrabold w-8 text-right shrink-0">{Math.round(wPct)}%</span>
                           <div className="flex-1 h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner max-w-[80px]">
@@ -4186,21 +4229,21 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Bottom analysis toolbar */}
-        <div className={`h-11 border-t flex justify-between items-center px-4 shrink-0 z-10 ${
+        {/* Bottom analysis toolbar — 4-way split */}
+        <div className={`h-14 border-t grid grid-cols-4 shrink-0 z-10 ${
           isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-150'
         }`}>
-          {/* 3-lines menu with editor options */}
-          <div className="relative">
+          {/* 1. More menu */}
+          <div className="relative flex items-center justify-center">
             <button 
               onClick={() => setIsAnalyzeMenuOpen(prev => !prev)}
-              className={`p-1.5 rounded-lg text-slate-500 hover:text-slate-800 cursor-pointer`}
-              title={language === 'ko' ? '메뉴' : 'Menu'}
+              className={`w-full h-full flex items-center justify-center cursor-pointer transition-colors ${isDark ? 'text-slate-400 hover:bg-stone-800' : 'text-slate-500 hover:bg-stone-50'}`}
+              title={language === 'ko' ? '더보기' : 'More'}
             >
-              <Menu size={18} />
+              <Menu size={22} />
             </button>
             {isAnalyzeMenuOpen && (
-              <div className={`absolute left-0 bottom-10 w-48 rounded-2xl shadow-2xl p-2 border z-50 text-[10px] font-bold space-y-1 animate-fade-in ${
+              <div className={`absolute left-0 bottom-14 w-48 rounded-2xl shadow-2xl p-2 border z-50 text-[10px] font-bold space-y-1 animate-fade-in ${
                 isDark ? 'bg-stone-900 border-stone-800 text-white shadow-black/85' : 'bg-white border-stone-200 text-slate-800'
               }`}>
                 <button 
@@ -4274,35 +4317,36 @@ export default function Home() {
             )}
           </div>
           
-          {/* Engine toggle */}
+          {/* 2. Engine toggle (icon only) */}
           <button 
             onClick={() => setIsAnalyzeEngineEnabled(prev => !prev)}
-            className={`px-3 py-1 rounded-xl text-[9px] font-black border transition-all cursor-pointer ${
+            className={`flex items-center justify-center cursor-pointer transition-colors ${
               isAnalyzeEngineEnabled 
-                ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
-                : (isDark ? 'bg-stone-900 border-stone-800 text-slate-500' : 'bg-white border-stone-250 text-slate-500')
+                ? (isDark ? 'text-blue-500 bg-blue-500/10' : 'text-blue-600 bg-blue-50') 
+                : (isDark ? 'text-slate-500 hover:bg-stone-800' : 'text-slate-400 hover:bg-stone-50')
             }`}
+            title={language === 'ko' ? '엔진 ON/OFF' : 'Engine ON/OFF'}
           >
-            ⚙️ {language === 'ko' ? '엔진추천' : 'Engine recommendations'}
+            <Cpu size={22} />
           </button>
           
-          {/* Navigation previous/next */}
-          <div className="flex gap-2">
-            <button 
-              onClick={handlePrevMove}
-              disabled={currentNodeId === 'root'}
-              className="p-1 hover:bg-stone-850 text-slate-500 rounded disabled:opacity-30 cursor-pointer"
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <button 
-              onClick={handleNextMove}
-              disabled={moveTree[currentNodeId]?.children.length === 0}
-              className="p-1 hover:bg-stone-850 text-slate-500 rounded disabled:opacity-30 cursor-pointer"
-            >
-              <ChevronRight size={20} />
-            </button>
-          </div>
+          {/* 3. Previous move */}
+          <button 
+            onClick={handlePrevMove}
+            disabled={currentNodeId === 'root'}
+            className={`flex items-center justify-center cursor-pointer disabled:opacity-25 transition-colors ${isDark ? 'text-slate-400 hover:bg-stone-800' : 'text-slate-500 hover:bg-stone-50'}`}
+          >
+            <ChevronLeft size={24} />
+          </button>
+          
+          {/* 4. Next move */}
+          <button 
+            onClick={handleNextMove}
+            disabled={moveTree[currentNodeId]?.children.length === 0}
+            className={`flex items-center justify-center cursor-pointer disabled:opacity-25 transition-colors ${isDark ? 'text-slate-400 hover:bg-stone-800' : 'text-slate-500 hover:bg-stone-50'}`}
+          >
+            <ChevronRight size={24} />
+          </button>
         </div>
       </div>
     );
