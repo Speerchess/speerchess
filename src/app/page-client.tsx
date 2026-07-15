@@ -1164,20 +1164,24 @@ export default function Home() {
             pv: sanPv
           };
 
-          // Save evaluation in moveTree node for dynamic annotation calculations
+          // Save evaluation in moveTree node for dynamic annotation calculations (White's perspective)
           if (multipv === 1 && currentDepth >= 8) {
             const currentId = currentNodeIdRef.current;
             setMoveTree(prev => {
               const node = prev[currentId];
-              if (node && node.eval !== score) {
-                return {
-                  ...prev,
-                  [currentId]: {
-                    ...node,
-                    eval: score,
-                    isMate: isMate
-                  }
-                };
+              if (node) {
+                const isWhiteTurn = node.fen.split(' ')[1] === 'w';
+                const absScore = isWhiteTurn ? score : -score;
+                if (node.eval !== absScore) {
+                  return {
+                    ...prev,
+                    [currentId]: {
+                      ...node,
+                      eval: absScore,
+                      isMate: isMate
+                    }
+                  };
+                }
               }
               return prev;
             });
@@ -1230,6 +1234,29 @@ export default function Home() {
         if (!res.ok) { setCloudEvalData(null); return; }
         const data = await res.json();
         setCloudEvalData(data);
+        
+        if (data && data.pvs && data.pvs.length > 0) {
+          const topPv = data.pvs[0];
+          const isMateVal = topPv.mate !== undefined;
+          const rawScore = isMateVal ? (topPv.mate! > 0 ? 10000 : -10000) : (topPv.cp || 0);
+          const isWhiteTurn = fen.split(' ')[1] === 'w';
+          const absScore = isWhiteTurn ? rawScore : -rawScore;
+          
+          setMoveTree(prev => {
+            const node = prev[currentNodeId];
+            if (node && node.eval !== absScore) {
+              return {
+                ...prev,
+                [currentNodeId]: {
+                  ...node,
+                  eval: absScore,
+                  isMate: isMateVal
+                }
+              };
+            }
+            return prev;
+          });
+        }
       } catch { setCloudEvalData(null); }
     }, 500);
     
@@ -1946,7 +1973,7 @@ export default function Home() {
         fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         parentId: null,
         children: [],
-        eval: 0
+        eval: analysis.evaluationHistory[0] !== undefined ? analysis.evaluationHistory[0] : 0
       }
     };
     
@@ -1967,7 +1994,7 @@ export default function Home() {
           fen: cTemp.fen(),
           parentId: currentId,
           children: [],
-          eval: move.evaluation
+          eval: analysis.evaluationHistory[i + 1] !== undefined ? analysis.evaluationHistory[i + 1] : 0
         };
         newTree[currentId].children.push(nextId);
         if (i === currentMoveIndex) {
