@@ -2696,7 +2696,7 @@ export default function Home() {
               setClockWhiteTime(clockBaseTime);
               setClockBlackTime(clockBaseTime);
               setClockTurn('w');
-              setClockActive(false);
+              setClockActive(true);
             }}
             className="w-full bg-slate-800 hover:bg-slate-750 text-white font-black py-4 rounded-2xl text-sm transition-all shadow-md active:scale-95 cursor-pointer mt-8"
           >
@@ -2926,6 +2926,10 @@ export default function Home() {
           </div>
         </div>
       );
+    }
+
+    if (moreSubView === 'clock') {
+      return renderChessClock();
     }
 
     return (
