@@ -7,6 +7,7 @@ export interface MoveAnalysis {
   evaluation: number; // in centipawns
   classification: 'Brilliant' | 'Great' | 'Best' | 'Excellent' | 'Good' | 'Inaccuracy' | 'Mistake' | 'Blunder' | 'Book' | 'Forced';
   accuracy: number;
+  bestMove?: string;
 }
 
 export interface GameAnalysis {
@@ -827,7 +828,8 @@ export class ChessAnalyzer {
         to: move.to,
         evaluation: currentEvalForPlayer,
         classification,
-        accuracy
+        accuracy,
+        bestMove: currentBestMove
       });
 
       prevEval = evalCp;

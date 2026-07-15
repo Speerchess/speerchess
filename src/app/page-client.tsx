@@ -454,6 +454,8 @@ export default function Home() {
     fen: string;
     parentId: string | null;
     children: string[];
+    eval?: number;
+    isMate?: boolean;
   }>>({
     'root': {
       id: 'root',
@@ -472,6 +474,17 @@ export default function Home() {
   const [cloudEvalEnabled, setCloudEvalEnabled] = useState<boolean>(true);
   const [cloudEvalData, setCloudEvalData] = useState<{ depth: number; pvs: { moves: string; cp?: number; mate?: number }[] } | null>(null);
   const [cloudEvalExhausted, setCloudEvalExhausted] = useState<boolean>(false);
+
+  // Analyze Tab Custom Views and Editor States
+  const [analyzeMode, setAnalyzeMode] = useState<'landing' | 'active' | 'edit'>('landing');
+  const [editorFen, setEditorFen] = useState<string>('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+  const [selectedPalettePiece, setSelectedPalettePiece] = useState<string | null>(null);
+
+  // Retry Mistake / Challenge Mode States
+  const [isChallengeMode, setIsChallengeMode] = useState<boolean>(false);
+  const [challengeSuccess, setChallengeSuccess] = useState<boolean | null>(null);
+  const [challengeMoveIndex, setChallengeMoveIndex] = useState<number | null>(null);
+  const [challengeAttempts, setChallengeAttempts] = useState<number>(0);
 
   // Feedback & Proposals
   const [feedbackEmail, setFeedbackEmail] = useState<string>('');
@@ -1150,6 +1163,25 @@ export default function Home() {
             isMate,
             pv: sanPv
           };
+
+          // Save evaluation in moveTree node for dynamic annotation calculations
+          if (multipv === 1 && currentDepth >= 8) {
+            const currentId = currentNodeIdRef.current;
+            setMoveTree(prev => {
+              const node = prev[currentId];
+              if (node && node.eval !== score) {
+                return {
+                  ...prev,
+                  [currentId]: {
+                    ...node,
+                    eval: score,
+                    isMate: isMate
+                  }
+                };
+              }
+              return prev;
+            });
+          }
 
           // Set engine best move arrow coord
           if (multipv === 1 && pv) {
@@ -1856,6 +1888,170 @@ export default function Home() {
     setActiveVariationIndex(null);
   };
 
+  const importPgnToMoveTree = (pgnText: string) => {
+    try {
+      const c = new Chess();
+      c.loadPgn(pgnText.trim());
+      const history = c.history({ verbose: true });
+      
+      const newTree: Record<string, any> = {
+        'root': {
+          id: 'root',
+          san: '',
+          from: '',
+          to: '',
+          fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          parentId: null,
+          children: []
+        }
+      };
+      
+      const cTemp = new Chess();
+      let currentId = 'root';
+      
+      for (let i = 0; i < history.length; i++) {
+        const move = history[i];
+        const nextId = `move_${i}_${Math.random().toString(36).substr(2, 9)}`;
+        cTemp.move({ from: move.from, to: move.to, promotion: move.promotion });
+        
+        newTree[nextId] = {
+          id: nextId,
+          san: move.san,
+          from: move.from,
+          to: move.to,
+          fen: cTemp.fen(),
+          parentId: currentId,
+          children: []
+        };
+        newTree[currentId].children.push(nextId);
+        currentId = nextId;
+      }
+      
+      setMoveTree(newTree);
+      setCurrentNodeId('root');
+      setAnalyzeMode('active');
+    } catch (e) {
+      alert(language === 'ko' ? '올바르지 않은 PGN 형식입니다.' : 'Invalid PGN format.');
+    }
+  };
+
+  const exportReviewToAnalyze = () => {
+    if (!analysis) return;
+    const newTree: Record<string, any> = {
+      'root': {
+        id: 'root',
+        san: '',
+        from: '',
+        to: '',
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        parentId: null,
+        children: [],
+        eval: 0
+      }
+    };
+    
+    const cTemp = new Chess();
+    let currentId = 'root';
+    let targetId = 'root';
+    
+    for (let i = 0; i < analysis.moves.length; i++) {
+      const move = analysis.moves[i];
+      const nextId = `move_${i}_${Math.random().toString(36).substr(2, 9)}`;
+      try {
+        cTemp.move(move.san);
+        newTree[nextId] = {
+          id: nextId,
+          san: move.san,
+          from: move.from,
+          to: move.to,
+          fen: cTemp.fen(),
+          parentId: currentId,
+          children: [],
+          eval: move.evaluation
+        };
+        newTree[currentId].children.push(nextId);
+        if (i === currentMoveIndex) {
+          targetId = nextId;
+        }
+        currentId = nextId;
+      } catch (e) {
+        break;
+      }
+    }
+    
+    setMoveTree(newTree);
+    setCurrentNodeId(targetId);
+    setAnalyzeMode('active');
+    setActiveTab('analyze');
+  };
+
+  // Dynamic centipawn annotation calculator
+  const getAnnotationSymbol = (nodeId: string) => {
+    const node = moveTree[nodeId];
+    if (!node || node.parentId === null) return '';
+    const parent = moveTree[node.parentId];
+    if (!parent || parent.eval === undefined || node.eval === undefined) return '';
+    
+    const isWhite = parent.fen.split(' ')[1] === 'w'; 
+    const prevEval = parent.eval;
+    const currentEval = node.eval;
+    const diff = isWhite ? (currentEval - prevEval) : (prevEval - currentEval);
+    
+    if (diff < -150) return '??'; // Blunder
+    if (diff < -80) return '?';   // Mistake
+    if (diff < -40) return '?!';  // Inaccuracy
+    if (diff > 150) return '!!';  // Brilliant
+    if (diff > 40) return '!';    // Good
+    return '';
+  };
+
+  const startChallenge = (index: number) => {
+    if (!analysis) return;
+    setIsChallengeMode(true);
+    setChallengeMoveIndex(index);
+    setChallengeSuccess(null);
+    setChallengeAttempts(0);
+    
+    const tempChess = new Chess();
+    for (let i = 0; i < index; i++) {
+      tempChess.move(analysis.moves[i].san);
+    }
+    setFen(tempChess.fen());
+  };
+
+  const retryChallenge = () => {
+    setChallengeSuccess(null);
+    if (challengeMoveIndex !== null && analysis) {
+      const tempChess = new Chess();
+      for (let i = 0; i < challengeMoveIndex; i++) {
+        tempChess.move(analysis.moves[i].san);
+      }
+      setFen(tempChess.fen());
+    }
+  };
+
+  const revealChallengeAnswer = () => {
+    if (challengeMoveIndex !== null && analysis) {
+      const targetMoveUci = analysis.moves[challengeMoveIndex]?.bestMove;
+      if (targetMoveUci) {
+        const fromSquare = targetMoveUci.slice(0, 2);
+        const toSquare = targetMoveUci.slice(2, 4);
+        const tempChess = new Chess(fen);
+        const pieceType = tempChess.get(fromSquare as any)?.type;
+        const isPawn = pieceType === 'p';
+        const isPromotionRank = toSquare[1] === '8' || toSquare[1] === '1';
+        const promotion = (isPawn && isPromotionRank) ? 'q' : undefined;
+        try {
+          tempChess.move({ from: fromSquare, to: toSquare, promotion });
+          setFen(tempChess.fen());
+          setChallengeSuccess(true);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  };
+
   const goToMove = (index: number) => {
     if (!analysis) return;
     setActiveVariationIndex(null);
@@ -1911,6 +2107,36 @@ export default function Home() {
   const handlePieceDrop = (args: { piece: any; sourceSquare: string; targetSquare: string | null }): boolean => {
     const { sourceSquare, targetSquare } = args;
     if (!targetSquare) return false;
+
+    // Challenge Mode Check (Chess.com style "Find Best Move")
+    if (isChallengeMode && challengeMoveIndex !== null && analysis) {
+      const targetMoveUci = analysis.moves[challengeMoveIndex]?.bestMove;
+      if (targetMoveUci) {
+        const fromSquare = targetMoveUci.slice(0, 2);
+        const toSquare = targetMoveUci.slice(2, 4);
+        
+        if (sourceSquare === fromSquare && targetSquare === toSquare) {
+          setChallengeSuccess(true);
+          // Play on board
+          try {
+            const tempChess = new Chess(fen);
+            const pieceType = tempChess.get(sourceSquare as any)?.type;
+            const isPawn = pieceType === 'p';
+            const isPromotionRank = targetSquare[1] === '8' || targetSquare[1] === '1';
+            const promotion = (isPawn && isPromotionRank) ? 'q' : undefined;
+            tempChess.move({ from: sourceSquare as any, to: targetSquare as any, promotion });
+            setFen(tempChess.fen());
+            return true;
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          setChallengeSuccess(false);
+          setChallengeAttempts(prev => prev + 1);
+          return false;
+        }
+      }
+    }
 
     try {
       const tempChess = new Chess(fen);
@@ -2403,17 +2629,26 @@ export default function Home() {
         label = `${node.san}`;
       }
 
+      const symbol = getAnnotationSymbol(node.id);
+      let symbolColor = 'text-[9px] font-black ml-0.5 ';
+      if (symbol === '??') symbolColor += 'text-red-500 font-extrabold';
+      else if (symbol === '?') symbolColor += 'text-orange-500 font-bold';
+      else if (symbol === '?!') symbolColor += 'text-yellow-600';
+      else if (symbol === '!!') symbolColor += 'text-cyan-500 font-extrabold';
+      else if (symbol === '!') symbolColor += 'text-blue-500 font-bold';
+
       elements.push(
         <span 
           key={node.id} 
           onClick={() => setCurrentNodeId(node.id)}
-          className={`cursor-pointer px-1 rounded hover:bg-stone-250 transition-colors font-bold text-xs ${
+          className={`inline-flex items-center cursor-pointer px-1 rounded hover:bg-stone-250 transition-colors font-bold text-xs ${
             currentNodeId === node.id 
               ? 'bg-blue-600 text-white shadow-sm' 
               : (darkMode === 'dark' ? 'text-slate-300 hover:bg-stone-800' : 'text-slate-750 hover:bg-stone-150')
           }`}
         >
           {label}
+          {symbol && <span className={symbolColor}>{symbol}</span>}
         </span>
       );
     }
@@ -3788,7 +4023,383 @@ export default function Home() {
     const prob = evalToWinProb(evalScore);
     const whitePct = prob * 100;
     const blackPct = 100 - whitePct;
-    
+
+    if (analyzeMode === 'landing') {
+      return (
+        <div className={`flex-1 flex flex-col justify-between overflow-y-auto no-scrollbar ${
+          isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+        }`}>
+          <div className="p-5 space-y-6 pt-6 flex-1 flex flex-col justify-center max-w-sm mx-auto w-full">
+            <div className="text-center space-y-1.5 mb-4">
+              <SpeerLogo className={`w-12 h-12 mx-auto ${isDark ? 'text-slate-100' : 'text-slate-800'}`} />
+              <h2 className="text-2xl font-black tracking-tight">{language === 'ko' ? '자유 분석판' : 'Analysis Board'}</h2>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{language === 'ko' ? '로컬 실시간 피드백 및 게임 분석' : 'Live real-time engine evaluation'}</p>
+            </div>
+
+            <div className="space-y-3">
+              {/* Option 1: Start Free Analysis */}
+              <button
+                onClick={() => {
+                  setMoveTree({ 'root': { id: 'root', san: '', from: '', to: '', fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', parentId: null, children: [] } });
+                  setCurrentNodeId('root');
+                  setAnalyzeMode('active');
+                }}
+                className={`w-full p-4 rounded-2xl border text-left transition-all active:scale-98 cursor-pointer flex items-center gap-4 ${
+                  isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+                }`}
+              >
+                <div className="p-3 bg-blue-600/10 text-blue-500 rounded-xl">
+                  <Play size={20} fill="currentColor" />
+                </div>
+                <div>
+                  <span className="block font-black text-xs">{language === 'ko' ? '자유 분석 시작' : 'Start Free Analysis'}</span>
+                  <span className="block text-[10px] text-slate-400 font-bold">{language === 'ko' ? '기본 시작 배치에서 분석판을 엽니다.' : 'Start analyzing from default chess position.'}</span>
+                </div>
+              </button>
+
+              {/* Option 2: Visual Board Editor */}
+              <button
+                onClick={() => {
+                  setEditorFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+                  setSelectedPalettePiece(null);
+                  setAnalyzeMode('edit');
+                }}
+                className={`w-full p-4 rounded-2xl border text-left transition-all active:scale-98 cursor-pointer flex items-center gap-4 ${
+                  isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+                }`}
+              >
+                <div className="p-3 bg-emerald-600/10 text-emerald-500 rounded-xl">
+                  <Settings size={20} />
+                </div>
+                <div>
+                  <span className="block font-black text-xs">{language === 'ko' ? '보드 편집기 (기물 배치)' : 'Visual Board Editor'}</span>
+                  <span className="block text-[10px] text-slate-400 font-bold">{language === 'ko' ? '원하는 기물을 직접 배치해 포지션을 생성합니다.' : 'Setup custom piece layouts on the board.'}</span>
+                </div>
+              </button>
+            </div>
+
+            {/* Option 3: Load PGN / FEN Game */}
+            <div className={`p-5 rounded-2xl border space-y-3 ${
+              isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+            }`}>
+              <div className="flex items-center gap-2 pb-2 border-b border-stone-800/40">
+                <span className="text-base">📝</span>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{language === 'ko' ? '게임 / 포지션 불러오기' : 'Import Game or FEN'}</span>
+              </div>
+              
+              <div className="space-y-2">
+                <textarea
+                  id="analyze-import-input"
+                  placeholder={language === 'ko' ? 'PGN 기보 내용 또는 FEN 코드를 여기에 입력하세요...' : 'Paste PGN moves list or FEN code here...'}
+                  rows={4}
+                  className={`w-full p-3 rounded-xl border text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none ${
+                    isDark ? 'bg-stone-950 border-stone-800 text-white' : 'bg-stone-50 border-stone-250 text-slate-800'
+                  }`}
+                />
+                
+                <button
+                  onClick={() => {
+                    const inputVal = (document.getElementById('analyze-import-input') as HTMLTextAreaElement)?.value?.trim();
+                    if (!inputVal) return;
+                    
+                    // Simple FEN validation: boards have 8 ranks separated by '/'
+                    if (inputVal.split('/').length >= 8) {
+                      try {
+                        const temp = new Chess(inputVal);
+                        setMoveTree({ 'root': { id: 'root', san: '', from: '', to: '', fen: temp.fen(), parentId: null, children: [] } });
+                        setCurrentNodeId('root');
+                        setAnalyzeMode('active');
+                      } catch {
+                        alert(language === 'ko' ? '올바르지 않은 FEN입니다.' : 'Invalid FEN code.');
+                      }
+                    } else {
+                      // Treat as PGN
+                      importPgnToMoveTree(inputVal);
+                    }
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-650 text-white font-black py-3 rounded-xl text-xs transition-all active:scale-95 cursor-pointer shadow-md"
+                >
+                  {language === 'ko' ? '가져오기 & 분석 시작' : 'Load and Start Analysis'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (analyzeMode === 'edit') {
+      const paletteBlack = ['bP', 'bN', 'bB', 'bR', 'bQ', 'bK'];
+      const paletteWhite = ['wP', 'wN', 'wB', 'wR', 'wQ', 'wK'];
+      
+      const unicodePieces: Record<string, string> = {
+        wP: '♙', wN: '♘', wB: '♗', wR: '♖', wQ: '♕', wK: '♔',
+        bP: '♟', bN: '♞', bB: '♝', bR: '♜', bQ: '♛', bK: '♚',
+      };
+      
+      const editorChess = new Chess(editorFen);
+      const editorCastling = editorFen.split(' ')[2] || '-';
+      const editorTurn = editorFen.split(' ')[1] || 'w';
+      
+      const handleEditorPieceDrop = (args: { piece: any; sourceSquare: string; targetSquare: string | null }): boolean => {
+        const { sourceSquare, targetSquare } = args;
+        if (!targetSquare) return false;
+        
+        const piece = editorChess.get(sourceSquare as any);
+        if (piece) {
+          editorChess.remove(sourceSquare as any);
+          editorChess.put(piece, targetSquare as any);
+          setEditorFen(editorChess.fen());
+          return true;
+        }
+        return false;
+      };
+      
+      const handleEditorSquareClick = (square: string) => {
+        if (selectedPalettePiece === 'eraser') {
+          editorChess.remove(square as any);
+        } else if (selectedPalettePiece) {
+          const color = selectedPalettePiece[0] as 'w' | 'b';
+          const type = selectedPalettePiece[1].toLowerCase() as any;
+          editorChess.put({ type, color }, square as any);
+        } else {
+          // Eye-dropper copy tool!
+          const piece = editorChess.get(square as any);
+          if (piece) {
+            setSelectedPalettePiece(`${piece.color}${piece.type.toUpperCase()}`);
+          }
+        }
+        setEditorFen(editorChess.fen());
+      };
+      
+      const setEditorTurn = (turn: 'w' | 'b') => {
+        const parts = editorFen.split(' ');
+        parts[1] = turn;
+        parts[3] = '-'; // clear en-passant to be safe
+        setEditorFen(parts.join(' '));
+      };
+      
+      const toggleEditorCastling = (right: string) => {
+        const parts = editorFen.split(' ');
+        let castling = parts[2] || '';
+        if (castling === '-') castling = '';
+        
+        if (castling.includes(right)) {
+          castling = castling.replace(right, '');
+        } else {
+          castling += right;
+        }
+        
+        let sorted = '';
+        if (castling.includes('K')) sorted += 'K';
+        if (castling.includes('Q')) sorted += 'Q';
+        if (castling.includes('k')) sorted += 'k';
+        if (castling.includes('q')) sorted += 'q';
+        
+        parts[2] = sorted || '-';
+        setEditorFen(parts.join(' '));
+      };
+      
+      return (
+        <div className={`flex-1 flex flex-col justify-between overflow-y-auto no-scrollbar ${
+          isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+        }`}>
+          {/* Header */}
+          <header className={`flex items-center justify-between py-3 px-4 border-b shrink-0 shadow-sm ${
+            isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+          }`}>
+            <button onClick={() => setAnalyzeMode('landing')} className={`p-2 rounded-full ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-655'}`}>
+              <ChevronLeft size={22} />
+            </button>
+            <div className="flex flex-col items-center">
+              <h2 className="font-black text-sm">{language === 'ko' ? '비주얼 보드 편집기' : 'Visual Board Editor'}</h2>
+              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">{language === 'ko' ? '드래그 & 클릭 기물 배치' : 'Click or Drag to place pieces'}</span>
+            </div>
+            <div className="w-10"></div>
+          </header>
+
+          <div className="p-4 space-y-4 max-w-sm mx-auto w-full flex-1 flex flex-col justify-center">
+            
+            {/* Top Palette: Black Pieces */}
+            <div className="flex justify-between items-center bg-stone-900/40 p-2 rounded-xl border border-stone-800/40">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-1">{language === 'ko' ? '흑 기물' : 'Black'}</span>
+              <div className="flex gap-1.5">
+                {paletteBlack.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setSelectedPalettePiece(p)}
+                    className={`w-8 h-8 rounded-lg text-lg flex items-center justify-center transition-all cursor-pointer ${
+                      selectedPalettePiece === p ? 'bg-blue-600 text-white shadow-md scale-110' : 'bg-stone-800 hover:bg-stone-750 text-stone-200'
+                    }`}
+                  >
+                    {unicodePieces[p]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Chessboard */}
+            <div className="w-full aspect-square overflow-hidden rounded-2xl shadow-lg border border-stone-200 bg-white">
+              <Chessboard
+                options={{
+                  position: editorFen,
+                  boardOrientation: boardOrientation,
+                  allowDragging: true,
+                  onPieceDrop: ({ sourceSquare, targetSquare }) => handleEditorPieceDrop({ piece: null, sourceSquare, targetSquare }),
+                  onSquareClick: ({ square }) => handleEditorSquareClick(square),
+                  darkSquareStyle: { backgroundColor: themeColors.dark },
+                  lightSquareStyle: { backgroundColor: themeColors.light },
+                  showNotation: showCoordinates,
+                  pieces: getCustomPieces(),
+                }}
+              />
+            </div>
+
+            {/* Bottom Palette: White Pieces & Eraser */}
+            <div className="flex justify-between items-center bg-stone-900/40 p-2 rounded-xl border border-stone-800/40">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedPalettePiece('eraser')}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                    selectedPalettePiece === 'eraser' ? 'bg-red-600 text-white shadow-md scale-110' : 'bg-stone-800 hover:bg-stone-750 text-stone-200 text-sm'
+                  }`}
+                  title={language === 'ko' ? '지우개' : 'Eraser'}
+                >
+                  🗑️
+                </button>
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{language === 'ko' ? '백 기물' : 'White'}</span>
+              </div>
+              <div className="flex gap-1.5">
+                {paletteWhite.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setSelectedPalettePiece(p)}
+                    className={`w-8 h-8 rounded-lg text-lg flex items-center justify-center transition-all cursor-pointer ${
+                      selectedPalettePiece === p ? 'bg-blue-600 text-white shadow-md scale-110' : 'bg-stone-800 hover:bg-stone-750 text-stone-200'
+                    }`}
+                  >
+                    {unicodePieces[p]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Configuration Controls */}
+            <div className={`p-4 rounded-2xl border space-y-4 ${
+              isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+            }`}>
+              {/* Turn Choice */}
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{language === 'ko' ? '시작 차례' : 'Starting Turn'}</span>
+                <div className="flex gap-1 bg-stone-950/40 p-1 rounded-lg border border-stone-800">
+                  <button
+                    onClick={() => setEditorTurn('w')}
+                    className={`px-3 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${
+                      editorTurn === 'w' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'
+                    }`}
+                  >
+                    {language === 'ko' ? '백선' : 'White to Move'}
+                  </button>
+                  <button
+                    onClick={() => setEditorTurn('b')}
+                    className={`px-3 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${
+                      editorTurn === 'b' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'
+                    }`}
+                  >
+                    {language === 'ko' ? '흑선' : 'Black to Move'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Castling Choice */}
+              <div className="space-y-1.5 border-t border-stone-800/40 pt-3">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">{language === 'ko' ? '캐슬링 권한 설정' : 'Castling Rights'}</span>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-350">
+                    <input
+                      type="checkbox"
+                      checked={editorCastling.includes('K')}
+                      onChange={() => toggleEditorCastling('K')}
+                      className="rounded border-stone-800 text-blue-600 bg-stone-950"
+                    />
+                    {language === 'ko' ? '백 킹사이드 (O-O)' : 'White O-O'}
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-350">
+                    <input
+                      type="checkbox"
+                      checked={editorCastling.includes('Q')}
+                      onChange={() => toggleEditorCastling('Q')}
+                      className="rounded border-stone-800 text-blue-600 bg-stone-950"
+                    />
+                    {language === 'ko' ? '백 퀸사이드 (O-O-O)' : 'White O-O-O'}
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-350">
+                    <input
+                      type="checkbox"
+                      checked={editorCastling.includes('k')}
+                      onChange={() => toggleEditorCastling('k')}
+                      className="rounded border-stone-800 text-blue-600 bg-stone-950"
+                    />
+                    {language === 'ko' ? '흑 킹사이드 (o-o)' : 'Black o-o'}
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-350">
+                    <input
+                      type="checkbox"
+                      checked={editorCastling.includes('q')}
+                      onChange={() => toggleEditorCastling('q')}
+                      className="rounded border-stone-800 text-blue-600 bg-stone-950"
+                    />
+                    {language === 'ko' ? '흑 퀸사이드 (o-o-o)' : 'Black o-o-o'}
+                  </label>
+                </div>
+              </div>
+
+              {/* Presets Row */}
+              <div className="flex gap-2 border-t border-stone-800/40 pt-3">
+                <button
+                  onClick={() => setEditorFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')}
+                  className="flex-1 bg-stone-800 hover:bg-stone-750 text-slate-300 font-bold py-2 rounded-xl text-xs transition-all cursor-pointer border border-stone-700"
+                >
+                  {language === 'ko' ? '시작 배치' : 'Start Board'}
+                </button>
+                <button
+                  onClick={() => setEditorFen('8/8/8/8/8/8/8/8 w - - 0 1')}
+                  className="flex-1 bg-stone-800 hover:bg-stone-750 text-slate-300 font-bold py-2 rounded-xl text-xs transition-all cursor-pointer border border-stone-700"
+                >
+                  {language === 'ko' ? '모두 비우기' : 'Clear Board'}
+                </button>
+              </div>
+
+              {/* Confirm Actions */}
+              <div className="flex gap-2 border-t border-stone-800/40 pt-3">
+                <button
+                  onClick={() => {
+                    try {
+                      const temp = new Chess(editorFen);
+                      setMoveTree({ 'root': { id: 'root', san: '', from: '', to: '', fen: temp.fen(), parentId: null, children: [] } });
+                      setCurrentNodeId('root');
+                      setAnalyzeMode('active');
+                    } catch {
+                      alert('올바르지 않은 배치입니다.');
+                    }
+                  }}
+                  className="flex-2 bg-blue-600 hover:bg-blue-650 text-white font-black py-3 rounded-xl text-xs transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  {language === 'ko' ? '적용하고 분석하기' : 'Apply & Analyze'}
+                </button>
+                <button
+                  onClick={() => setAnalyzeMode('landing')}
+                  className="flex-1 bg-stone-850 hover:bg-stone-800 text-slate-300 font-bold py-3 rounded-xl text-xs transition-all border border-stone-750 cursor-pointer"
+                >
+                  {language === 'ko' ? '취소' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const handleAnalyzeSquareClick = (square: string) => {
       if (!showMoveDestinations) return;
       const tempChess = new Chess(activeFen);
@@ -3862,7 +4473,16 @@ export default function Home() {
         <header className={`flex items-center justify-between py-2 px-4 border-b shrink-0 shadow-sm z-10 ${
           isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
         }`}>
-          <button onClick={() => { setActiveTab('home'); }} className={`p-2 rounded-full ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'}`}>
+          <button 
+            onClick={() => {
+              if ((analyzeMode as string) !== 'landing') {
+                setAnalyzeMode('landing');
+              } else {
+                setActiveTab('home');
+              }
+            }} 
+            className={`p-2 rounded-full ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-655'}`}
+          >
             <ChevronLeft size={22} />
           </button>
           <div className="flex flex-col items-center">
@@ -4261,21 +4881,14 @@ export default function Home() {
                 </button>
                 <button 
                   onClick={() => {
-                    const fenIn = prompt(language === 'ko' ? 'FEN 포지션을 입력해 보드를 설정하세요 (보드 편집기):' : 'Enter FEN code to configure board (Board Editor):');
-                    if (fenIn && fenIn.trim()) {
-                      try {
-                        const temp = new Chess(fenIn.trim());
-                        setMoveTree({ 'root': { id: 'root', san: '', from: '', to: '', fen: temp.fen(), parentId: null, children: [] } });
-                        setCurrentNodeId('root');
-                      } catch (e) {
-                        alert(language === 'ko' ? '올바르지 않은 FEN입니다.' : 'Invalid FEN code.');
-                      }
-                    }
+                    setEditorFen(activeFen);
+                    setSelectedPalettePiece(null);
+                    setAnalyzeMode('edit');
                     setIsAnalyzeMenuOpen(false);
                   }}
                   className={`w-full text-left px-3 py-2 rounded-xl cursor-pointer ${isDark ? 'hover:bg-stone-800' : 'hover:bg-stone-100'}`}
                 >
-                  🛠️ {language === 'ko' ? '보드 편집기 (FEN 설정)' : 'Board Editor (Set FEN)'}
+                  🛠️ {language === 'ko' ? '보드 편집기 (기물 배치)' : 'Visual Board Editor'}
                 </button>
                 <button 
                   onClick={() => {
@@ -4607,6 +5220,13 @@ export default function Home() {
 
             <div className="p-4 bg-white border-t border-stone-200/60 space-y-2 shrink-0">
               <button 
+                onClick={exportReviewToAnalyze}
+                className="w-full bg-blue-600 hover:bg-blue-650 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer"
+              >
+                <GitBranch size={18} /> {language === 'ko' ? '자유 분석판으로 내보내기' : 'Export to Analyze Board'}
+              </button>
+              
+              <button 
                 onClick={startReview}
                 className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer"
               >
@@ -4829,32 +5449,34 @@ export default function Home() {
             </div>
 
             {/* Navigation Controls (positioned above the Active Move Display) */}
-            <div className="grid grid-cols-4 gap-1 p-2 bg-stone-50/30 border-b border-stone-200/40 text-center">
-              <button 
-                onClick={() => goToMove(-1)}
-                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
-              >
-                처음
-              </button>
-              <button 
-                onClick={handlePrevMove}
-                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
-              >
-                <ChevronLeft size={16} /> 이전
-              </button>
-              <button 
-                onClick={handleNextMove}
-                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
-              >
-                다음 <ChevronRight size={16} />
-              </button>
-              <button 
-                onClick={() => goToMove(analysis.moves.length - 1)}
-                className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
-              >
-                마지막
-              </button>
-            </div>
+            {!isChallengeMode && (
+              <div className="grid grid-cols-4 gap-1 p-2 bg-stone-50/30 border-b border-stone-200/40 text-center">
+                <button 
+                  onClick={() => goToMove(-1)}
+                  className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
+                >
+                  처음
+                </button>
+                <button 
+                  onClick={handlePrevMove}
+                  className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
+                >
+                  <ChevronLeft size={16} /> 이전
+                </button>
+                <button 
+                  onClick={handleNextMove}
+                  className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
+                >
+                  다음 <ChevronRight size={16} />
+                </button>
+                <button 
+                  onClick={() => goToMove(analysis.moves.length - 1)}
+                  className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
+                >
+                  마지막
+                </button>
+              </div>
+            )}
 
             {/* Active Move Display & Mode Tab Toggle Button */}
             <div className="px-4 py-1.5 border-b border-stone-200/40 bg-stone-50/40 flex items-center justify-between min-h-[46px]">
@@ -4895,16 +5517,56 @@ export default function Home() {
                     </button>
                   </div>
                 </>
-              ) : currentMoveIndex >= 0 ? (
+              ) : isChallengeMode ? (
                 <>
                   <div className="flex items-center gap-3">
-                    <span className="font-extrabold text-slate-400 text-xs">
-                      {Math.floor(currentMoveIndex / 2) + 1}. {currentMoveIndex % 2 === 0 ? '백' : '흑'}
+                    <span className="text-xl animate-bounce">🧩</span>
+                    <span className="font-black text-sm text-slate-800">
+                      {language === 'ko' ? '최선수를 찾으세요!' : 'Find the Best Move!'}
                     </span>
-                    <span className="font-black text-xl text-slate-800">{analysis.moves[currentMoveIndex].san}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${getBadgeStyle(analysis.moves[currentMoveIndex].classification)}`}>
-                      {classificationSymbols[analysis.moves[currentMoveIndex].classification] || ''} {analysis.moves[currentMoveIndex].classification}
-                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
+                      className="p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      title="보드 뒤집기"
+                    >
+                      <span className="font-black text-xs">⇅</span>
+                      <span className="text-[10px] font-black uppercase tracking-wider">뒤집기</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsChallengeMode(false);
+                        setChallengeSuccess(null);
+                        goToMove(challengeMoveIndex!);
+                      }}
+                      className="p-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 transition-all hover:bg-red-100 active:scale-95 flex items-center gap-1"
+                    >
+                      <span className="text-[10px] font-black uppercase tracking-wider">{language === 'ko' ? '포기' : 'Exit'}</span>
+                    </button>
+                  </div>
+                </>
+              ) : currentMoveIndex >= 0 ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-slate-400 text-xs">
+                        {Math.floor(currentMoveIndex / 2) + 1}. {currentMoveIndex % 2 === 0 ? '백' : '흑'}
+                      </span>
+                      <span className="font-black text-xl text-slate-800">{analysis.moves[currentMoveIndex].san}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${getBadgeStyle(analysis.moves[currentMoveIndex].classification)}`}>
+                        {classificationSymbols[analysis.moves[currentMoveIndex].classification] || ''} {analysis.moves[currentMoveIndex].classification}
+                      </span>
+                    </div>
+                    {['Mistake', 'Blunder', 'Inaccuracy'].includes(analysis.moves[currentMoveIndex].classification) && (
+                      <button
+                        onClick={() => startChallenge(currentMoveIndex)}
+                        className="px-2 py-0.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[9px] shadow-sm transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                        title={language === 'ko' ? '최선수 다시 시도하기' : 'Retry to find Best Move'}
+                      >
+                        <span>🧩</span> {language === 'ko' ? '최선수 찾기' : 'Retry'}
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <button 
@@ -4954,42 +5616,122 @@ export default function Home() {
               )}
             </div>
 
-            {/* TAB CONTENT: MOVES LIST (감상모드) */}
+            {/* TAB CONTENT: MOVES LIST (감상모드) 또는 최선수 찾기 도전 화면 */}
             {reviewTab === 'MOVES' && (
-              <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar bg-stone-50/10">
-                {movePairs.map((pair, i) => (
-                  <div key={i} className="flex gap-3 p-1 rounded hover:bg-slate-50 items-center text-xs">
-                    <span className="text-slate-400 font-bold w-6 text-right">{i + 1}.</span>
-                    {pair.map(({ move, index: moveIndex }) => {
-                      const isCurrent = moveIndex === currentMoveIndex;
-                      const style = getClassificationStyle(move.classification, isCurrent);
-                      const symbol = classificationSymbols[move.classification];
-                      
-                      // Highlight ONLY special moves (Mistake, Blunder, Inaccuracy, Great, Brilliant)
-                      const isSpecial = SPECIAL_CLASSIFICATIONS.includes(move.classification);
-                      
-                      return (
+              isChallengeMode ? (
+                <div className={`flex-1 flex flex-col p-5 justify-between ${darkMode === 'dark' ? 'bg-stone-900 text-white' : 'bg-stone-100 text-slate-800'}`}>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 border-b border-stone-850 pb-3">
+                      <span className="text-xl">🧩</span>
+                      <h4 className="font-black text-xs uppercase tracking-wider text-slate-400">{language === 'ko' ? '최선수 찾기 도전' : 'Retry Move Challenge'}</h4>
+                    </div>
+                    
+                    {challengeSuccess === null && (
+                      <div className={`p-4 rounded-xl border space-y-2 ${darkMode === 'dark' ? 'bg-stone-950/80 border-stone-800' : 'bg-white border-stone-250'}`}>
+                        <p className="text-xs font-bold text-slate-400">
+                          {language === 'ko' 
+                            ? '현재 포지션에서 발생한 실수를 교정해 보세요.' 
+                            : 'Correct the mistake/blunder made in this position.'}
+                        </p>
+                        <p className="text-sm font-black text-blue-500">
+                          {language === 'ko' 
+                            ? '체스판에서 가장 적절하다고 생각되는 최선의 수(Best Move)를 직접 두어보세요!' 
+                            : 'Play what you think is the Best Move on the board!'}
+                        </p>
+                        <div className="text-[10px] font-bold text-slate-500">
+                          {language === 'ko' ? `시도 횟수: ${challengeAttempts}회` : `Attempts: ${challengeAttempts}`}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {challengeSuccess === false && (
+                      <div className="p-4 rounded-xl bg-red-950/20 border border-red-800/40 space-y-3">
+                        <p className="text-sm font-black text-red-500 flex items-center gap-1.5 animate-pulse">
+                          ❌ {language === 'ko' ? '틀렸습니다! 다시 생각해 보세요.' : 'Wrong move! Try thinking again.'}
+                        </p>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={retryChallenge}
+                            className="bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer"
+                          >
+                            {language === 'ko' ? '다시 시도' : 'Try Again'}
+                          </button>
+                          <button 
+                            onClick={revealChallengeAnswer}
+                            className="bg-slate-800 hover:bg-slate-750 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer"
+                          >
+                            {language === 'ko' ? '정답 보기' : 'Show Answer'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {challengeSuccess === true && (
+                      <div className="p-4 rounded-xl bg-green-950/20 border border-green-800/40 space-y-3">
+                        <p className="text-sm font-black text-green-600 flex items-center gap-1.5">
+                          🎉 {language === 'ko' ? '정답입니다! 정확한 최선수(Best Move)를 찾았습니다.' : 'Correct! You found the Best Move.'}
+                        </p>
                         <button 
-                          id={`move-btn-${moveIndex}`}
-                          key={moveIndex}
-                          onClick={() => goToMove(moveIndex)}
-                          className={`flex-1 text-left px-3 py-2.5 rounded-xl font-bold transition-all flex justify-between items-center ${style}`}
+                          onClick={() => {
+                            setIsChallengeMode(false);
+                            setChallengeSuccess(null);
+                            goToMove(challengeMoveIndex!);
+                          }}
+                          className="w-full bg-green-600 hover:bg-green-650 text-white font-bold py-2 rounded-lg text-xs transition-all cursor-pointer"
                         >
-                          <span>{move.san}</span>
-                          {symbol && isSpecial && (
-                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ml-1 ${
-                              isCurrent ? 'bg-white text-slate-800' : 'bg-black/5 text-slate-700'
-                            }`}>
-                              {symbol}
-                            </span>
-                          )}
+                          {language === 'ko' ? '성공! 복기 계속하기' : 'Success! Continue Review'}
                         </button>
-                      );
-                    })}
-                    {pair.length === 1 && <div className="flex-1" />}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                  
+                  <button 
+                    onClick={() => {
+                      setIsChallengeMode(false);
+                      setChallengeSuccess(null);
+                      goToMove(challengeMoveIndex!);
+                    }}
+                    className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-3 rounded-xl text-xs transition-all cursor-pointer"
+                  >
+                    {language === 'ko' ? '도전 중단하고 복기로 돌아가기' : 'Exit Challenge Mode'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar bg-stone-50/10">
+                  {movePairs.map((pair, i) => (
+                    <div key={i} className="flex gap-3 p-1 rounded hover:bg-slate-50 items-center text-xs">
+                      <span className="text-slate-400 font-bold w-6 text-right">{i + 1}.</span>
+                      {pair.map(({ move, index: moveIndex }) => {
+                        const isCurrent = moveIndex === currentMoveIndex;
+                        const style = getClassificationStyle(move.classification, isCurrent);
+                        const symbol = classificationSymbols[move.classification];
+                        
+                        // Highlight ONLY special moves (Mistake, Blunder, Inaccuracy, Great, Brilliant)
+                        const isSpecial = SPECIAL_CLASSIFICATIONS.includes(move.classification);
+                        
+                        return (
+                          <button 
+                            id={`move-btn-${moveIndex}`}
+                            key={moveIndex}
+                            onClick={() => goToMove(moveIndex)}
+                            className={`flex-1 text-left px-3 py-2.5 rounded-xl font-bold transition-all flex justify-between items-center ${style}`}
+                          >
+                            <span>{move.san}</span>
+                            {symbol && isSpecial && (
+                              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ml-1 ${
+                                isCurrent ? 'bg-white text-slate-800' : 'bg-black/5 text-slate-700'
+                              }`}>
+                                {symbol}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                      {pair.length === 1 && <div className="flex-1" />}
+                    </div>
+                  ))}
+                </div>
+              )
             )}
 
             {/* TAB CONTENT: REALTIME ENGINE PV ANALYSIS & FULL PGN FLOW (분석모드) */}
@@ -5395,6 +6137,17 @@ export default function Home() {
                       공유 링크: {window.location.origin}/{sharedHashid}
                     </div>
                   )}
+                  {/* Export to Free Analysis Board */}
+                  <button 
+                    onClick={() => {
+                      setIsSidebarOpen(false);
+                      exportReviewToAnalyze();
+                    }}
+                    className="w-full bg-blue-600 hover:bg-blue-650 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer mt-2"
+                  >
+                    <GitBranch size={14} />
+                    {language === 'ko' ? '자유 분석판으로 내보내기' : 'Export to Analyze'}
+                  </button>
                 </div>
               </div>
 
@@ -5934,7 +6687,7 @@ export default function Home() {
         {view === 'CHESSLE' && activeTab === 'chessle' && chesslePuzzle && (
           <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
             <header className="flex items-center justify-between py-2 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
-              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+              <button onClick={() => { setView('INPUT'); setChesslePuzzle(null); }} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
                 <ChevronLeft size={22} />
               </button>
               <div className="text-center">
@@ -6299,6 +7052,12 @@ export default function Home() {
 
         {/* BOTTOM NAVIGATION BAR */}
         {view !== 'LOADING' && (
+          (activeTab === 'home') ||
+          (activeTab === 'more' && moreSubView === 'menu') ||
+          (activeTab === 'analyze' && analyzeMode === 'landing') ||
+          (activeTab === 'review' && view === 'INPUT') ||
+          (activeTab === 'chessle' && !chesslePuzzle)
+        ) && (
           <nav className={`h-14 border-t flex items-center justify-around shrink-0 z-40 select-none ${
             darkMode === 'dark' 
               ? 'bg-stone-900 border-stone-850 text-slate-400' 
