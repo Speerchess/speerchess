@@ -5002,21 +5002,29 @@ export default function Home() {
         
         {/* VIEW: LOADING */}
         {view === 'LOADING' && (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 bg-stone-50 text-slate-800 text-center">
+          <div className={`flex-1 flex flex-col items-center justify-center p-6 text-center ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
             <div className="w-full max-w-sm space-y-8">
               <div className="space-y-4">
                 <div className="flex justify-center animate-bounce">
-                  <SpeerLogo className="w-12 h-12 text-slate-800" />
+                  <SpeerLogo className={`w-12 h-12 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
                 </div>
-                <h3 className="text-xs font-black tracking-widest text-slate-800 uppercase">SPEERCHESS ENGINE ANALYZING</h3>
-                <p className="text-sm font-medium text-slate-600 max-w-xs mx-auto leading-relaxed italic">
+                <h3 className={`text-xs font-black tracking-widest uppercase ${darkMode === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>
+                  SPEERCHESS ENGINE ANALYZING
+                </h3>
+                <p className={`text-sm font-medium max-w-xs mx-auto leading-relaxed italic ${
+                  darkMode === 'dark' ? 'text-slate-400' : 'text-slate-600'
+                }`}>
                   "{quote}"
                 </p>
               </div>
               <div className="space-y-2">
-                <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                <div className={`h-1.5 w-full rounded-full overflow-hidden ${
+                  darkMode === 'dark' ? 'bg-stone-800' : 'bg-slate-200'
+                }`}>
                   <div 
-                    className="h-full bg-slate-800 transition-all duration-300 ease-out"
+                    className="h-full bg-blue-600 transition-all duration-300 ease-out"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
@@ -5117,26 +5125,39 @@ export default function Home() {
 
         {/* VIEW: SUMMARY */}
         {view === 'SUMMARY' && activeTab === 'review' && analysis && (
-          <div className="flex-1 flex flex-col bg-stone-50 overflow-y-auto no-scrollbar">
-            <header className="flex items-center justify-between p-4 bg-white border-b border-stone-200/60 sticky top-0 z-10 shadow-sm">
-              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600">
+          <div className={`flex-1 flex flex-col overflow-y-auto no-scrollbar ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <header className={`flex items-center justify-between py-2.5 px-4 border-b shrink-0 shadow-sm sticky top-0 z-10 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
+              <button 
+                onClick={() => setView('INPUT')} 
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+              >
                 <ChevronLeft size={22} />
               </button>
               <div className="flex items-center gap-1.5">
-                <SpeerLogo className="w-5 h-5 text-slate-800" />
-                <span className="font-black text-base tracking-tight text-slate-800">speerchess</span>
+                <SpeerLogo className={`w-5 h-5 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
+                <span className="font-black text-base tracking-tight">speerchess</span>
               </div>
               <div className="w-10"></div>
             </header>
 
             <main className="p-4 space-y-4 flex-1">
-              <div className="bg-white rounded-2xl shadow-sm border border-stone-200/50 p-5 space-y-1">
+              <div className={`rounded-2xl shadow-sm border p-5 space-y-1 ${
+                darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+              }`}>
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">경기 결과</span>
-                <h2 className="text-2xl font-black text-slate-850">{getGameResult(pgn, language)}</h2>
+                <h2 className="text-2xl font-black">{getGameResult(pgn, language)}</h2>
               </div>
 
               {/* Graph Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-stone-200/50 p-4 h-56 flex flex-col justify-between">
+              <div className={`rounded-2xl shadow-sm border p-4 h-56 flex flex-col justify-between ${
+                darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+              }`}>
                 <div className="text-xs font-black text-slate-400 uppercase tracking-wider">평가 그래프 (Speer Flow)</div>
                 <div className="flex-1 w-full h-full min-h-[140px]">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -5149,18 +5170,20 @@ export default function Home() {
                     >
                       <defs>
                         <linearGradient id="colorEval" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#475569" stopOpacity={0.25}/>
-                          <stop offset="95%" stopColor="#475569" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35}/>
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="move" hide />
                       <YAxis domain={[-8, 8]} hide />
-                      <ReferenceLine y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
-                      <Area type="monotone" dataKey="evaluation" stroke="#334155" strokeWidth={2} fillOpacity={1} fill="url(#colorEval)" />
+                      <ReferenceLine y={0} stroke={darkMode === 'dark' ? "#44403c" : "#cbd5e1"} strokeDasharray="3 3" />
+                      <Area type="monotone" dataKey="evaluation" stroke={darkMode === 'dark' ? "#60a5fa" : "#2563eb"} strokeWidth={2} fillOpacity={1} fill="url(#colorEval)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1 border-t border-stone-100 mt-1 font-bold">
+                <div className={`flex justify-between items-center text-[10px] text-slate-400 pt-1 border-t mt-1 font-bold ${
+                  darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+                }`}>
                   <span>백 유리 (+)</span>
                   <span>균형 (0.0)</span>
                   <span>흑 유리 (-)</span>
@@ -5168,24 +5191,26 @@ export default function Home() {
               </div>
 
               {/* Accuracy Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-stone-200/50 p-5 space-y-4">
+              <div className={`rounded-2xl shadow-sm border p-5 space-y-4 ${
+                darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+              }`}>
                 <div className="text-xs font-black text-slate-400 uppercase tracking-wider">정확도 분석 (Accuracy)</div>
                 <div className="space-y-3">
                   <div>
                     <div className="flex justify-between text-xs font-bold mb-1">
-                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-800"></span> 백 (White)</span>
-                      <span className="font-extrabold">{analysis.whiteAccuracy}%</span>
+                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500"></span> 백 (White)</span>
+                      <span className="font-extrabold text-blue-500">{analysis.whiteAccuracy}%</span>
                     </div>
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-slate-800 rounded-full transition-all duration-1000" style={{ width: `${analysis.whiteAccuracy}%` }} />
+                    <div className={`h-2 w-full rounded-full overflow-hidden ${darkMode === 'dark' ? 'bg-stone-800' : 'bg-slate-100'}`}>
+                      <div className="h-full bg-blue-500 rounded-full transition-all duration-1000" style={{ width: `${analysis.whiteAccuracy}%` }} />
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs font-bold mb-1">
                       <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-400"></span> 흑 (Black)</span>
-                      <span className="font-extrabold text-slate-600">{analysis.blackAccuracy}%</span>
+                      <span className="font-extrabold text-slate-400">{analysis.blackAccuracy}%</span>
                     </div>
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-2 w-full rounded-full overflow-hidden ${darkMode === 'dark' ? 'bg-stone-800' : 'bg-slate-100'}`}>
                       <div className="h-full bg-slate-400 rounded-full transition-all duration-1000" style={{ width: `${analysis.blackAccuracy}%` }} />
                     </div>
                   </div>
@@ -5194,44 +5219,48 @@ export default function Home() {
 
               {/* Performance Card */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-200/50 text-center">
+                <div className={`p-4 rounded-2xl shadow-sm border text-center ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+                }`}>
                   <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">백 퍼포먼스</div>
-                  <div className="text-xl font-black text-slate-850 mt-1">{analysis.whitePerformance} <span className="text-xs font-normal text-slate-500">Elo</span></div>
+                  <div className="text-xl font-black mt-1">{analysis.whitePerformance} <span className="text-xs font-normal text-slate-500">Elo</span></div>
                 </div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-200/50 text-center">
+                <div className={`p-4 rounded-2xl shadow-sm border text-center ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+                }`}>
                   <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">흑 퍼포먼스</div>
-                  <div className="text-xl font-black text-slate-700 mt-1">{analysis.blackPerformance} <span className="text-xs font-normal text-slate-500">Elo</span></div>
+                  <div className="text-xl font-black mt-1">{analysis.blackPerformance} <span className="text-xs font-normal text-slate-500">Elo</span></div>
                 </div>
               </div>
 
               {/* Classification Summary Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-stone-200/50 p-5 space-y-4">
+              <div className={`rounded-2xl shadow-sm border p-5 space-y-4 ${
+                darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+              }`}>
                 <div className="text-xs font-black text-slate-400 uppercase tracking-wider">수 분류 통계 (Move Stats)</div>
-                <div className="grid grid-cols-3 text-center border-b border-stone-100 pb-2 text-[10px] font-black text-slate-400">
+                <div className={`grid grid-cols-3 text-center border-b pb-2 text-[10px] font-black text-slate-400 ${
+                  darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+                }`}>
                   <div className="text-left">분류</div>
                   <div>백</div>
                   <div>흑</div>
                 </div>
                 <div className="space-y-2.5">
                   {[
-                    { label: '탁월함 (Brilliant)', key: 'Brilliant', symbol: '!!', color: 'text-cyan-600' },
-                    { label: '훌륭한 수 (Great)', key: 'Great', symbol: '!', color: 'text-sky-600' },
-                    { label: '최고의 수 (Best)', key: 'Best', symbol: '★', color: 'text-green-650' },
-                    { label: '우수함 (Excellent)', key: 'Excellent', symbol: '●', color: 'text-emerald-600' },
-                    { label: '좋음 (Good)', key: 'Good', symbol: '✓', color: 'text-slate-700' },
-                    { label: '북 오프닝 (Book)', key: 'Book', symbol: '◆', color: 'text-amber-800' },
-                    { label: '부정확함 (Inaccuracy)', key: 'Inaccuracy', symbol: '!?', color: 'text-yellow-655 font-bold' },
-                    { label: '실수 (Mistake)', key: 'Mistake', symbol: '?', color: 'text-orange-500 font-bold' },
-                    { label: '블런더 (Blunder)', key: 'Blunder', symbol: '??', color: 'text-red-500 font-bold' },
+                    { label: '탁월함 (Brilliant)', key: 'Brilliant', symbol: '!!', color: 'text-cyan-500', badgeDark: 'bg-cyan-950 text-cyan-400 border border-cyan-800/40', badgeLight: 'bg-cyan-100 text-cyan-700' },
+                    { label: '훌륭한 수 (Great)', key: 'Great', symbol: '!', color: 'text-sky-500', badgeDark: 'bg-sky-950 text-sky-400 border border-sky-800/40', badgeLight: 'bg-sky-100 text-sky-700' },
+                    { label: '최고의 수 (Best)', key: 'Best', symbol: '★', color: 'text-green-500', badgeDark: 'bg-green-950 text-green-400 border border-green-800/40', badgeLight: 'bg-green-100 text-green-700' },
+                    { label: '우수함 (Excellent)', key: 'Excellent', symbol: '●', color: 'text-emerald-500', badgeDark: 'bg-emerald-950 text-emerald-400 border border-emerald-800/40', badgeLight: 'bg-emerald-100 text-emerald-700' },
+                    { label: '좋음 (Good)', key: 'Good', symbol: '✓', color: darkMode === 'dark' ? 'text-slate-300' : 'text-slate-700', badgeDark: 'bg-stone-800 text-slate-300', badgeLight: 'bg-slate-100 text-slate-600' },
+                    { label: '북 오프닝 (Book)', key: 'Book', symbol: '◆', color: 'text-amber-500', badgeDark: 'bg-amber-950 text-amber-400 border border-amber-800/40', badgeLight: 'bg-amber-100 text-amber-800' },
+                    { label: '부정확함 (Inaccuracy)', key: 'Inaccuracy', symbol: '!?', color: 'text-yellow-500 font-bold', badgeDark: 'bg-yellow-950 text-yellow-400 border border-yellow-800/40', badgeLight: 'bg-yellow-100 text-yellow-700' },
+                    { label: '실수 (Mistake)', key: 'Mistake', symbol: '?', color: 'text-orange-500 font-bold', badgeDark: 'bg-orange-950 text-orange-400 border border-orange-800/40', badgeLight: 'bg-orange-100 text-orange-700' },
+                    { label: '블런더 (Blunder)', key: 'Blunder', symbol: '??', color: 'text-red-500 font-bold', badgeDark: 'bg-red-950 text-red-400 border border-red-800/40', badgeLight: 'bg-red-100 text-red-700' },
                   ].map((stat) => (
                     <div key={stat.key} className="grid grid-cols-3 text-center items-center text-xs">
-                      <div className="flex items-center gap-2 text-left font-medium text-slate-600">
+                      <div className={`flex items-center gap-2 text-left font-medium ${darkMode === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
                         <span className={`w-5 text-center text-[10px] font-black px-1 py-0.5 rounded ${
-                          stat.key === 'Blunder' ? 'bg-red-100 text-red-700' :
-                          stat.key === 'Brilliant' ? 'bg-cyan-100 text-cyan-700' :
-                          stat.key === 'Mistake' ? 'bg-orange-100 text-orange-700' :
-                          stat.key === 'Inaccuracy' ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-slate-100 text-slate-600'
+                          darkMode === 'dark' ? stat.badgeDark : stat.badgeLight
                         }`}>
                           {stat.symbol}
                         </span>
@@ -5245,17 +5274,21 @@ export default function Home() {
               </div>
             </main>
 
-            <div className="p-4 bg-white border-t border-stone-200/60 space-y-2 shrink-0">
+            <div className={`p-4 border-t space-y-2 shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
               <button 
                 onClick={exportReviewToAnalyze}
-                className="w-full bg-blue-600 hover:bg-blue-650 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer"
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer"
               >
                 <GitBranch size={18} /> {language === 'ko' ? '자유 분석판으로 내보내기' : 'Export to Analyze Board'}
               </button>
               
               <button 
                 onClick={startReview}
-                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer"
+                className={`w-full font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer ${
+                  darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                }`}
               >
                 첫 수부터 복기 시작 <ChevronRight size={18} />
               </button>
@@ -5264,7 +5297,9 @@ export default function Home() {
                 <button 
                   onClick={handleDownloadGif} 
                   disabled={isExportingGif}
-                  className="bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer animate-none"
+                  className={`disabled:opacity-50 font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                  }`}
                 >
                   {isExportingGif ? (
                     <>
@@ -5280,7 +5315,9 @@ export default function Home() {
                 </button>
                 <button 
                   onClick={handleCopyPgn}
-                  className="bg-white hover:bg-stone-50 text-slate-800 font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-stone-300 shadow-sm text-xs active:scale-95 cursor-pointer"
+                  className={`font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border shadow-sm text-xs active:scale-95 cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 text-stone-200 border-stone-750' : 'bg-white hover:bg-stone-50 text-slate-800 border-stone-300'
+                  }`}
                 >
                   <Layers size={14} />
                   PGN 복사하기
@@ -5289,7 +5326,9 @@ export default function Home() {
               <button 
                 onClick={handleShareGame}
                 disabled={isSharing}
-                className="w-full bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
+                className={`w-full disabled:opacity-50 font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer ${
+                  darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                }`}
               >
                 {isSharing ? (
                   <>
@@ -5314,18 +5353,29 @@ export default function Home() {
 
         {/* VIEW: REVIEW */}
         {view === 'REVIEW' && activeTab === 'review' && analysis && (
-          <div className="flex-1 flex flex-col bg-white overflow-hidden">
-            <header className="flex items-center justify-between py-2 px-4 bg-white border-b border-stone-200/60 shadow-sm z-10">
-              <button onClick={() => setView('SUMMARY')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600">
+          <div className={`flex-1 flex flex-col overflow-hidden ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <header className={`flex items-center justify-between py-2 px-4 border-b shrink-0 shadow-sm z-10 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
+              <button 
+                onClick={() => setView('SUMMARY')} 
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+              >
                 <ChevronLeft size={22} />
               </button>
               <div className="flex items-center gap-1.5">
-                <SpeerLogo className="w-5 h-5 text-slate-800" />
-                <span className="font-black text-base tracking-tight text-slate-800">speerchess</span>
+                <SpeerLogo className={`w-5 h-5 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
+                <span className="font-black text-base tracking-tight">speerchess</span>
               </div>
               <button 
                 onClick={() => setIsSidebarOpen(true)}
-                className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 relative"
+                className={`p-2 rounded-full transition-colors cursor-pointer relative ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
                 title="메뉴"
               >
                 <Menu size={22} />
@@ -5333,34 +5383,42 @@ export default function Home() {
             </header>
 
             {/* Chessboard & Eval Bar Container */}
-            <div className="flex flex-col p-4 bg-stone-50/50 border-b border-stone-200/60 items-center">
+            <div className={`flex flex-col p-4 border-b items-center ${
+              darkMode === 'dark' ? 'bg-stone-900/30 border-stone-850' : 'bg-stone-50/50 border-stone-200/60'
+            }`}>
               
-              {/* Sleek Horizontal Eval Slider (Unique design distinct from Chess.com) */}
+              {/* Sleek Horizontal Eval Slider */}
               <div className="w-full max-w-[360px] flex flex-col gap-1 mb-1.5">
-                <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                <div className="flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   <span>백 (White) {getEvalStr(getCurrentEvaluation())}</span>
                   <span>흑 (Black)</span>
                 </div>
-                <div className="h-2.5 w-full bg-slate-900 rounded-full overflow-hidden relative flex border border-stone-200 shadow-inner">
+                <div className={`h-2.5 w-full rounded-full overflow-hidden relative flex border shadow-inner ${
+                  darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-slate-900 border-stone-200'
+                }`}>
                   <div 
                     className="bg-slate-100 transition-all duration-500 ease-out h-full" 
                     style={{ width: `${getEvalPercent(getCurrentEvaluation())}%` }}
                   />
-                  <div className="bg-slate-900 flex-1 h-full" />
+                  <div className={`${darkMode === 'dark' ? 'bg-stone-950' : 'bg-slate-900'} flex-1 h-full`} />
                 </div>
               </div>
 
-              {/* Horizontal Engine Lines (compact, visible in ALL modes) */}
-              <div className="w-full max-w-[360px] flex justify-between items-center text-[9px] font-bold text-slate-500 mb-1">
+              {/* Horizontal Engine Lines */}
+              <div className="w-full max-w-[360px] flex justify-between items-center text-[9px] font-bold text-slate-400 mb-1">
                 <span>실시간 추천 분석 (Stockfish PV)</span>
-                <div className="flex items-center gap-1 bg-stone-150 p-0.5 rounded-lg border border-stone-200/60 shadow-sm">
-                  <span className="text-[8px] text-slate-400 font-black uppercase mr-1 pl-1">깊이 (Depth):</span>
+                <div className={`flex items-center gap-1 p-0.5 rounded-lg border shadow-sm ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-800' : 'bg-stone-150 border-stone-200/60'
+                }`}>
+                  <span className="text-[8px] text-slate-500 font-black uppercase mr-1 pl-1">깊이 (Depth):</span>
                   {[14, 16, 18, 20].map((d) => (
                     <button
                       key={d}
                       onClick={() => setAnalysisDepth(d)}
-                      className={`px-1.5 py-0.5 rounded transition-all text-[8px] font-black ${
-                        analysisDepth === d ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                      className={`px-1.5 py-0.5 rounded transition-all text-[8px] font-black cursor-pointer ${
+                        analysisDepth === d 
+                          ? 'bg-blue-600 text-white shadow-sm' 
+                          : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
                       }`}
                     >
                       {d}
@@ -5381,10 +5439,12 @@ export default function Home() {
                       
                     const badgeColor = line.isMate || displayScore > 100 
                       ? 'bg-green-600 text-white animate-pulse' 
-                      : displayScore < -100 ? 'bg-red-700 text-white' : 'bg-slate-700 text-slate-100';
+                      : displayScore < -100 ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-100';
                     
                     return (
-                      <div key={line.multipv} className="flex items-center gap-2 text-[10px] font-mono leading-none bg-slate-900 text-slate-200 p-1.5 rounded-lg border border-slate-800 shadow-sm">
+                      <div key={line.multipv} className={`flex items-center gap-2 text-[10px] font-mono leading-none p-1.5 rounded-lg border shadow-sm ${
+                        darkMode === 'dark' ? 'bg-stone-900/80 border-stone-800 text-slate-200' : 'bg-slate-900 text-slate-200 border-slate-800'
+                      }`}>
                         <span className={`${badgeColor} px-1.5 py-0.5 rounded font-black shrink-0 text-[8px]`}>
                           {scoreStr}
                         </span>
@@ -5395,7 +5455,9 @@ export default function Home() {
                     );
                   })
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center p-2 bg-slate-900 rounded-lg border border-slate-800 text-[10px] font-mono text-slate-400 gap-1.5">
+                  <div className={`w-full h-full flex items-center justify-center p-2 rounded-lg border text-[10px] font-mono gap-1.5 ${
+                    darkMode === 'dark' ? 'bg-stone-900/60 border-stone-800 text-slate-400' : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}>
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
                     <span>실시간 추천 분석 가동 중...</span>
                   </div>
@@ -5405,7 +5467,7 @@ export default function Home() {
               {/* Chessboard Container */}
               <div 
                 ref={boardContainerRef}
-                className="w-full aspect-square max-w-[360px] overflow-hidden rounded-2xl shadow-md border border-stone-200/60 bg-white"
+                className="w-full aspect-square max-w-[360px] overflow-hidden rounded-2xl shadow-lg border border-stone-200/60 bg-white"
               >
                 <Chessboard 
                   options={{
@@ -5424,17 +5486,17 @@ export default function Home() {
                       let highlightStyle = '';
                       if (isTargetSquare || isSourceSquare) {
                         if (activeVariationIndex !== null) {
-                          highlightStyle = 'bg-yellow-500/20'; // Default highlight for manually placed variations
+                          highlightStyle = 'bg-yellow-500/20';
                         } else {
                           const currentMove = currentMoveIndex >= 0 ? analysis.moves[currentMoveIndex] : null;
                           if (currentMove) {
                             const isBrilliantOrGreat = currentMove.classification === 'Brilliant' || currentMove.classification === 'Great';
                             if (isBrilliantOrGreat) {
-                              highlightStyle = 'bg-emerald-500/35'; // Greenish highlight
+                              highlightStyle = 'bg-emerald-500/35';
                             } else if (currentMove.classification === 'Inaccuracy' || currentMove.classification === 'Mistake' || currentMove.classification === 'Blunder') {
-                              highlightStyle = 'bg-yellow-500/35'; // Yellowish highlight
+                              highlightStyle = 'bg-yellow-500/35';
                             } else {
-                              highlightStyle = 'bg-yellow-500/20'; // Default move highlight
+                              highlightStyle = 'bg-yellow-500/20';
                             }
                           } else {
                             highlightStyle = 'bg-yellow-500/20';
@@ -5477,28 +5539,38 @@ export default function Home() {
 
             {/* Navigation Controls (positioned above the Active Move Display) */}
             {!isChallengeMode && (
-              <div className="grid grid-cols-4 gap-1 p-2 bg-stone-50/30 border-b border-stone-200/40 text-center">
+              <div className={`grid grid-cols-4 gap-1 p-2 border-b text-center ${
+                darkMode === 'dark' ? 'bg-stone-900/40 border-stone-850' : 'bg-stone-50/40 border-stone-200/40'
+              }`}>
                 <button 
                   onClick={() => goToMove(-1)}
-                  className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
+                  className={`py-2 rounded-lg font-bold transition-all text-xs border border-transparent active:scale-95 cursor-pointer ${
+                    darkMode === 'dark' ? 'text-slate-300 hover:bg-stone-800 hover:border-stone-700' : 'text-slate-600 hover:bg-white hover:border-stone-200'
+                  }`}
                 >
                   처음
                 </button>
                 <button 
                   onClick={handlePrevMove}
-                  className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
+                  className={`py-2 rounded-lg font-bold transition-all text-xs border border-transparent active:scale-95 flex items-center justify-center gap-1 cursor-pointer ${
+                    darkMode === 'dark' ? 'text-slate-300 hover:bg-stone-800 hover:border-stone-700' : 'text-slate-600 hover:bg-white hover:border-stone-200'
+                  }`}
                 >
                   <ChevronLeft size={16} /> 이전
                 </button>
                 <button 
                   onClick={handleNextMove}
-                  className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95 flex items-center justify-center gap-1"
+                  className={`py-2 rounded-lg font-bold transition-all text-xs border border-transparent active:scale-95 flex items-center justify-center gap-1 cursor-pointer ${
+                    darkMode === 'dark' ? 'text-slate-300 hover:bg-stone-800 hover:border-stone-700' : 'text-slate-600 hover:bg-white hover:border-stone-200'
+                  }`}
                 >
                   다음 <ChevronRight size={16} />
                 </button>
                 <button 
                   onClick={() => goToMove(analysis.moves.length - 1)}
-                  className="py-2 hover:bg-white rounded-lg text-slate-600 font-bold transition-all text-xs border border-transparent hover:border-stone-200 active:scale-95"
+                  className={`py-2 rounded-lg font-bold transition-all text-xs border border-transparent active:scale-95 cursor-pointer ${
+                    darkMode === 'dark' ? 'text-slate-300 hover:bg-stone-800 hover:border-stone-700' : 'text-slate-600 hover:bg-white hover:border-stone-200'
+                  }`}
                 >
                   마지막
                 </button>
@@ -5506,7 +5578,9 @@ export default function Home() {
             )}
 
             {/* Active Move Display & Mode Tab Toggle Button */}
-            <div className="px-4 py-1.5 border-b border-stone-200/40 bg-stone-50/40 flex items-center justify-between min-h-[46px]">
+            <div className={`px-4 py-2 border-b flex items-center justify-between min-h-[48px] ${
+              darkMode === 'dark' ? 'bg-stone-900/60 border-stone-850' : 'bg-stone-50/50 border-stone-200/40'
+            }`}>
               {activeVariationIndex !== null ? (
                 <>
                   <div className="flex items-center gap-3">
@@ -5518,15 +5592,19 @@ export default function Home() {
                         return `${moveNum}. ${isWhite ? '백' : '흑'}`;
                       })()}
                     </span>
-                    <span className="font-black text-xl text-slate-800">{analysisPath[activeVariationIndex]}</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                    <span className="font-black text-xl">{analysisPath[activeVariationIndex]}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      darkMode === 'dark' ? 'bg-stone-800 text-slate-300 border-stone-700' : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}>
                       분석 수 (Variation)
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={() => setBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
-                      className="p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                        darkMode === 'dark' ? 'bg-stone-800 text-slate-200 border-stone-700 hover:bg-stone-750' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
                       title="보드 뒤집기"
                     >
                       <span className="font-black text-xs">⇅</span>
@@ -5534,7 +5612,9 @@ export default function Home() {
                     </button>
                     <button 
                       onClick={handleTabToggle}
-                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1.5 bg-white text-slate-700 border-slate-200 hover:bg-slate-50`}
+                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer ${
+                        darkMode === 'dark' ? 'bg-stone-800 text-slate-200 border-stone-700 hover:bg-stone-750' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
                       title={reviewTab === 'MOVES' ? "분석모드로 전환" : "감상모드로 전환"}
                     >
                       <span className="font-black text-lg leading-none">≡</span>
@@ -5548,14 +5628,16 @@ export default function Home() {
                 <>
                   <div className="flex items-center gap-3">
                     <span className="text-xl animate-bounce">🧩</span>
-                    <span className="font-black text-sm text-slate-800">
+                    <span className="font-black text-sm">
                       {language === 'ko' ? '최선수를 찾으세요!' : 'Find the Best Move!'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={() => setBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
-                      className="p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                        darkMode === 'dark' ? 'bg-stone-800 text-slate-200 border-stone-700 hover:bg-stone-750' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
                       title="보드 뒤집기"
                     >
                       <span className="font-black text-xs">⇅</span>
@@ -5567,7 +5649,7 @@ export default function Home() {
                         setChallengeSuccess(null);
                         goToMove(challengeMoveIndex!);
                       }}
-                      className="p-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 transition-all hover:bg-red-100 active:scale-95 flex items-center gap-1"
+                      className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 transition-all hover:bg-red-500/20 active:scale-95 flex items-center gap-1 cursor-pointer"
                     >
                       <span className="text-[10px] font-black uppercase tracking-wider">{language === 'ko' ? '포기' : 'Exit'}</span>
                     </button>
@@ -5580,7 +5662,7 @@ export default function Home() {
                       <span className="font-extrabold text-slate-400 text-xs">
                         {Math.floor(currentMoveIndex / 2) + 1}. {currentMoveIndex % 2 === 0 ? '백' : '흑'}
                       </span>
-                      <span className="font-black text-xl text-slate-800">{analysis.moves[currentMoveIndex].san}</span>
+                      <span className="font-black text-xl">{analysis.moves[currentMoveIndex].san}</span>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${getBadgeStyle(analysis.moves[currentMoveIndex].classification)}`}>
                         {classificationSymbols[analysis.moves[currentMoveIndex].classification] || ''} {analysis.moves[currentMoveIndex].classification}
                       </span>
@@ -5598,7 +5680,9 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={() => setBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
-                      className="p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                        darkMode === 'dark' ? 'bg-stone-800 text-slate-200 border-stone-700 hover:bg-stone-750' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
                       title="보드 뒤집기"
                     >
                       <span className="font-black text-xs">⇅</span>
@@ -5607,7 +5691,9 @@ export default function Home() {
                     {/* Congruent Menu symbol ≡ button displays the destination view state name to switch to */}
                     <button 
                       onClick={handleTabToggle}
-                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1.5 bg-white text-slate-700 border-slate-200 hover:bg-slate-50`}
+                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer ${
+                        darkMode === 'dark' ? 'bg-stone-800 text-slate-200 border-stone-700 hover:bg-stone-750' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
                       title={reviewTab === 'MOVES' ? "분석모드로 전환" : "감상모드로 전환"}
                     >
                       <span className="font-black text-lg leading-none">≡</span>
@@ -5623,7 +5709,9 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={() => setBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
-                      className="p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                        darkMode === 'dark' ? 'bg-stone-800 text-slate-200 border-stone-700 hover:bg-stone-750' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
                       title="보드 뒤집기"
                     >
                       <span className="font-black text-xs">⇅</span>
@@ -5631,7 +5719,9 @@ export default function Home() {
                     </button>
                     <button 
                       onClick={handleTabToggle}
-                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1.5 bg-white text-slate-700 border-slate-200 hover:bg-slate-50`}
+                      className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer ${
+                        darkMode === 'dark' ? 'bg-stone-800 text-slate-200 border-stone-700 hover:bg-stone-750' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
                     >
                       <span className="font-black text-lg leading-none">≡</span>
                       <span className="text-[10px] font-black uppercase tracking-wider">
@@ -5648,13 +5738,13 @@ export default function Home() {
               isChallengeMode ? (
                 <div className={`flex-1 flex flex-col p-5 justify-between ${darkMode === 'dark' ? 'bg-stone-900 text-white' : 'bg-stone-100 text-slate-800'}`}>
                   <div className="space-y-4">
-                    <div className="flex items-center gap-2 border-b border-stone-850 pb-3">
+                    <div className={`flex items-center gap-2 border-b pb-3 ${darkMode === 'dark' ? 'border-stone-800' : 'border-stone-200'}`}>
                       <span className="text-xl">🧩</span>
                       <h4 className="font-black text-xs uppercase tracking-wider text-slate-400">{language === 'ko' ? '최선수 찾기 도전' : 'Retry Move Challenge'}</h4>
                     </div>
                     
                     {challengeSuccess === null && (
-                      <div className={`p-4 rounded-xl border space-y-2 ${darkMode === 'dark' ? 'bg-stone-950/80 border-stone-800' : 'bg-white border-stone-250'}`}>
+                      <div className={`p-4 rounded-2xl border space-y-2 ${darkMode === 'dark' ? 'bg-stone-950/80 border-stone-800' : 'bg-white border-stone-200'}`}>
                         <p className="text-xs font-bold text-slate-400">
                           {language === 'ko' 
                             ? '현재 포지션에서 발생한 실수를 교정해 보세요.' 
@@ -5672,20 +5762,22 @@ export default function Home() {
                     )}
                     
                     {challengeSuccess === false && (
-                      <div className="p-4 rounded-xl bg-red-950/20 border border-red-800/40 space-y-3">
-                        <p className="text-sm font-black text-red-500 flex items-center gap-1.5 animate-pulse">
+                      <div className="p-4 rounded-2xl bg-red-950/30 border border-red-800/50 space-y-3">
+                        <p className="text-sm font-black text-red-400 flex items-center gap-1.5 animate-pulse">
                           ❌ {language === 'ko' ? '틀렸습니다! 다시 생각해 보세요.' : 'Wrong move! Try thinking again.'}
                         </p>
                         <div className="flex gap-2">
                           <button 
                             onClick={retryChallenge}
-                            className="bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer"
+                            className="bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer shadow-sm active:scale-95"
                           >
                             {language === 'ko' ? '다시 시도' : 'Try Again'}
                           </button>
                           <button 
                             onClick={revealChallengeAnswer}
-                            className="bg-slate-800 hover:bg-slate-750 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer"
+                            className={`font-bold px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer active:scale-95 ${
+                              darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                            }`}
                           >
                             {language === 'ko' ? '정답 보기' : 'Show Answer'}
                           </button>
@@ -5694,8 +5786,8 @@ export default function Home() {
                     )}
                     
                     {challengeSuccess === true && (
-                      <div className="p-4 rounded-xl bg-green-950/20 border border-green-800/40 space-y-3">
-                        <p className="text-sm font-black text-green-600 flex items-center gap-1.5">
+                      <div className="p-4 rounded-2xl bg-green-950/30 border border-green-800/50 space-y-3">
+                        <p className="text-sm font-black text-green-400 flex items-center gap-1.5">
                           🎉 {language === 'ko' ? '정답입니다! 정확한 최선수(Best Move)를 찾았습니다.' : 'Correct! You found the Best Move.'}
                         </p>
                         <button 
@@ -5704,7 +5796,7 @@ export default function Home() {
                             setChallengeSuccess(null);
                             goToMove(challengeMoveIndex!);
                           }}
-                          className="w-full bg-green-600 hover:bg-green-650 text-white font-bold py-2 rounded-lg text-xs transition-all cursor-pointer"
+                          className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all cursor-pointer shadow-sm active:scale-95"
                         >
                           {language === 'ko' ? '성공! 복기 계속하기' : 'Success! Continue Review'}
                         </button>
@@ -5718,15 +5810,21 @@ export default function Home() {
                       setChallengeSuccess(null);
                       goToMove(challengeMoveIndex!);
                     }}
-                    className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-3 rounded-xl text-xs transition-all cursor-pointer"
+                    className={`w-full font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer active:scale-95 ${
+                      darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                    }`}
                   >
                     {language === 'ko' ? '도전 중단하고 복기로 돌아가기' : 'Exit Challenge Mode'}
                   </button>
                 </div>
               ) : (
-                <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar bg-stone-50/10">
+                <div className={`flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar ${
+                  darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-stone-50/10 text-slate-800'
+                }`}>
                   {movePairs.map((pair, i) => (
-                    <div key={i} className="flex gap-3 p-1 rounded hover:bg-slate-50 items-center text-xs">
+                    <div key={i} className={`flex gap-3 p-1 rounded items-center text-xs ${
+                      darkMode === 'dark' ? 'hover:bg-stone-900/60' : 'hover:bg-slate-50'
+                    }`}>
                       <span className="text-slate-400 font-bold w-6 text-right">{i + 1}.</span>
                       {pair.map(({ move, index: moveIndex }) => {
                         const isCurrent = moveIndex === currentMoveIndex;
@@ -5741,12 +5839,12 @@ export default function Home() {
                             id={`move-btn-${moveIndex}`}
                             key={moveIndex}
                             onClick={() => goToMove(moveIndex)}
-                            className={`flex-1 text-left px-3 py-2.5 rounded-xl font-bold transition-all flex justify-between items-center ${style}`}
+                            className={`flex-1 text-left px-3 py-2.5 rounded-xl font-bold transition-all flex justify-between items-center cursor-pointer ${style}`}
                           >
                             <span>{move.san}</span>
                             {symbol && isSpecial && (
                               <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ml-1 ${
-                                isCurrent ? 'bg-white text-slate-800' : 'bg-black/5 text-slate-700'
+                                isCurrent ? 'bg-white text-slate-800' : (darkMode === 'dark' ? 'bg-black/40 text-slate-200' : 'bg-black/5 text-slate-700')
                               }`}>
                                 {symbol}
                               </span>
@@ -5763,38 +5861,45 @@ export default function Home() {
 
             {/* TAB CONTENT: REALTIME ENGINE PV ANALYSIS & FULL PGN FLOW (분석모드) */}
             {reviewTab === 'ENGINE' && (
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-stone-50/10 no-scrollbar">
+              <div className={`flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar ${
+                darkMode === 'dark' ? 'bg-stone-950' : 'bg-stone-50/10'
+              }`}>
                 
-                {/* Full Inline PGN Text Flow (전체 기보 일렬 표시 + 인라인 사이드라인 표시) */}
-                <div className="bg-white p-4 rounded-2xl border border-stone-200/50 shadow-sm space-y-2">
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-stone-100 pb-1.5 flex justify-between items-center">
+                {/* Full Inline PGN Text Flow */}
+                <div className={`p-4 rounded-2xl border shadow-sm space-y-2 ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/50 text-slate-800'
+                }`}>
+                  <div className={`text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b pb-1.5 flex justify-between items-center ${
+                    darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+                  }`}>
                     <span>전체 기보 흐름 (Full Game Score)</span>
                     {analysisPath.length > 0 && (
                       <button 
                         onClick={resetSelfAnalysis}
-                        className="text-[10px] text-red-600 font-extrabold hover:underline active:scale-95"
+                        className="text-[10px] text-red-500 font-extrabold hover:underline active:scale-95 cursor-pointer"
                       >
                         분석 복원
                       </button>
                     )}
                   </div>
-                  <div className="font-mono text-xs text-slate-750 leading-relaxed max-h-56 overflow-y-auto select-text pr-1 py-1">
+                  <div className={`font-mono text-xs leading-relaxed max-h-56 overflow-y-auto select-text pr-1 py-1 ${
+                    darkMode === 'dark' ? 'text-slate-200' : 'text-slate-750'
+                  }`}>
                     {analysis.moves.map((move, index) => {
                       const isCurrent = index === currentMoveIndex;
                       const isSpecial = SPECIAL_CLASSIFICATIONS.includes(move.classification);
                       
-                      // Text decoration style matching standard chess analysis inline lists
                       let inlineStyle = 'transition-all duration-200 px-1 py-0.5 rounded cursor-pointer font-bold mx-0.5 ';
                       if (isCurrent) {
-                        inlineStyle += 'bg-slate-800 text-white shadow-sm ';
+                        inlineStyle += darkMode === 'dark' ? 'bg-blue-600 text-white shadow-sm ' : 'bg-slate-800 text-white shadow-sm ';
                       } else if (isSpecial) {
-                        if (move.classification === 'Blunder') inlineStyle += 'text-red-700 bg-red-50 border border-red-200/50 ';
-                        else if (move.classification === 'Mistake') inlineStyle += 'text-orange-700 bg-orange-50 border border-orange-200/50 ';
-                        else if (move.classification === 'Inaccuracy') inlineStyle += 'text-yellow-800 bg-yellow-50 border border-yellow-200/50 ';
-                        else if (move.classification === 'Brilliant') inlineStyle += 'text-cyan-700 bg-cyan-50 border border-cyan-200/50 ';
-                        else if (move.classification === 'Great') inlineStyle += 'text-sky-700 bg-sky-50 border border-sky-200/50 ';
+                        if (move.classification === 'Blunder') inlineStyle += 'text-red-500 bg-red-500/10 border border-red-500/30 ';
+                        else if (move.classification === 'Mistake') inlineStyle += 'text-orange-500 bg-orange-500/10 border border-orange-500/30 ';
+                        else if (move.classification === 'Inaccuracy') inlineStyle += 'text-yellow-500 bg-yellow-500/10 border border-yellow-500/30 ';
+                        else if (move.classification === 'Brilliant') inlineStyle += 'text-cyan-500 bg-cyan-500/10 border border-cyan-500/30 ';
+                        else if (move.classification === 'Great') inlineStyle += 'text-sky-500 bg-sky-500/10 border border-sky-500/30 ';
                       } else {
-                        inlineStyle += 'text-slate-700 hover:bg-stone-100 ';
+                        inlineStyle += darkMode === 'dark' ? 'text-slate-300 hover:bg-stone-800 ' : 'text-slate-700 hover:bg-stone-100 ';
                       }
                       
                       return (
@@ -5827,7 +5932,7 @@ export default function Home() {
                                   if (isCurrentVar) {
                                     varStyle += 'bg-slate-700 text-white shadow-sm ';
                                   } else {
-                                    varStyle += 'text-slate-500 hover:bg-stone-100 ';
+                                    varStyle += darkMode === 'dark' ? 'text-slate-400 hover:bg-stone-800 ' : 'text-slate-500 hover:bg-stone-100 ';
                                   }
 
                                   return (
@@ -5855,9 +5960,6 @@ export default function Home() {
                     })}
                   </div>
                 </div>
-
-
-
               </div>
             )}
             
@@ -5866,61 +5968,78 @@ export default function Home() {
 
         {/* VIEW: INPUT */}
         {view === 'INPUT' && activeTab === 'review' && (
-          <div className="flex-1 flex flex-col bg-white overflow-y-auto no-scrollbar relative">
-            {/* Home Top Bar */}
-            <div className="flex items-center justify-center px-4 py-3 border-b border-stone-200/40 bg-stone-50/25 shrink-0">
-              <div className="flex items-center gap-1">
-                <SpeerLogo className="w-4 h-4 text-slate-800" />
-                <span className="font-extrabold text-sm tracking-tight text-slate-800">speerchess</span>
+          <div className={`flex-1 flex flex-col justify-between overflow-y-auto no-scrollbar ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <div className="p-5 space-y-6 pt-6 flex-1 flex flex-col max-w-sm mx-auto w-full">
+              {/* Header Branding */}
+              <div className="text-center space-y-1.5 mb-2">
+                <SpeerLogo className={`w-12 h-12 mx-auto ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
+                <h2 className="text-2xl font-black tracking-tight">{language === 'ko' ? '기보 리뷰 및 분석' : 'Game Review'}</h2>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{language === 'ko' ? 'Lichess 링크 또는 PGN 기보 분석' : 'Analyze Lichess URL or PGN moves'}</p>
               </div>
-            </div>
 
-            {/* Header */}
-            <div className="text-center py-8 px-6 space-y-2 border-b border-stone-200/40 bg-stone-50/20 shrink-0">
-              <div className="flex justify-center">
-                <SpeerLogo className="w-10 h-10 text-slate-800" />
-              </div>
-              <h1 className="text-3xl font-black tracking-tight text-slate-800">speerchess</h1>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Chess game review & analysis</p>
-            </div>
-
-            <div className="p-6 space-y-6 flex-1">
-              {/* Input Area */}
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-500 tracking-wider flex items-center gap-1.5 uppercase">
-                  <Globe size={14} className="text-slate-450" /> 링크 또는 PGN 기보 입력
-                </label>
-                <div className="relative">
-                  <textarea 
-                    className="w-full h-36 p-4 bg-stone-50 border border-stone-250 rounded-2xl focus:ring-2 focus:ring-slate-800 focus:border-slate-800 focus:bg-white outline-none transition-all resize-none text-slate-700 font-mono text-xs placeholder:text-slate-400 leading-relaxed shadow-inner" 
-                    placeholder="Lichess 게임 링크 (예: https://lichess.org/...)&#10;또는 체스 PGN 기보 텍스트를 입력해 주세요."
-                    value={pgn}
-                    onChange={(e) => setPgn(e.target.value)}
-                  />
+              {/* Input Area Card */}
+              <div className={`p-5 rounded-2xl border space-y-3 ${
+                darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+              }`}>
+                <div className={`flex items-center justify-between pb-2 border-b ${
+                  darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+                }`}>
+                  <div className="flex items-center gap-1.5 text-xs font-black text-slate-400 uppercase tracking-wider">
+                    <Globe size={14} className="text-blue-500" />
+                    <span>{language === 'ko' ? '링크 또는 PGN 입력' : 'PGN or Lichess URL'}</span>
+                  </div>
                   <button 
                     onClick={loadSample}
-                    className="absolute bottom-3 right-3 text-[10px] bg-slate-50 hover:bg-slate-100 text-slate-850 font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 transition-all flex items-center gap-1 active:scale-95"
+                    className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all flex items-center gap-1 active:scale-95 cursor-pointer ${
+                      darkMode === 'dark' 
+                        ? 'bg-stone-800 hover:bg-stone-750 text-slate-200 border-stone-700' 
+                        : 'bg-stone-50 hover:bg-stone-100 text-slate-700 border-slate-200'
+                    }`}
                   >
-                    <Star size={10} className="fill-slate-700 text-slate-700" /> 샘플 경기 불러오기
+                    <Star size={10} className="fill-amber-400 text-amber-400" /> {language === 'ko' ? '샘플 경기' : 'Sample Game'}
                   </button>
                 </div>
+
+                <textarea 
+                  className={`w-full h-32 p-3.5 rounded-xl border font-mono text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all resize-none leading-relaxed ${
+                    darkMode === 'dark' 
+                      ? 'bg-stone-950 border-stone-800 text-white placeholder:text-stone-500' 
+                      : 'bg-stone-50 border-stone-250 text-slate-800 placeholder:text-slate-400'
+                  }`}
+                  placeholder={language === 'ko' 
+                    ? "Lichess 게임 링크 (예: https://lichess.org/...)\n또는 체스 PGN 기보 텍스트를 입력하세요." 
+                    : "Paste Lichess match URL or PGN moves text here..."}
+                  value={pgn}
+                  onChange={(e) => setPgn(e.target.value)}
+                />
               </div>
 
-              {/* Settings Area */}
-              <div className="space-y-4 pt-2 border-t border-stone-200/40">
-                <h3 className="text-xs font-black text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
-                  <Settings size={14} className="text-slate-450" /> 분석 설정
-                </h3>
+              {/* Settings Area Card */}
+              <div className={`p-5 rounded-2xl border space-y-4 ${
+                darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+              }`}>
+                <div className={`flex items-center gap-1.5 pb-2 border-b text-xs font-black text-slate-400 uppercase tracking-wider ${
+                  darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+                }`}>
+                  <Settings size={14} className="text-blue-500" />
+                  <span>{language === 'ko' ? '분석 옵션 설정' : 'Analysis Settings'}</span>
+                </div>
                 
                 {/* Depth setting */}
                 <div className="space-y-2">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-500">분석 수 깊이 (Depth)</span>
-                    <span className="font-bold text-slate-800 bg-stone-100 px-2 py-0.5 rounded">
+                    <span className="font-semibold text-slate-400">{language === 'ko' ? '분석 수 깊이 (Depth)' : 'Search Depth'}</span>
+                    <span className={`font-bold px-2 py-0.5 rounded text-[11px] ${
+                      darkMode === 'dark' ? 'bg-stone-800 text-blue-400' : 'bg-stone-100 text-blue-600'
+                    }`}>
                       {depth === 12 ? '빠름 (12수)' : depth === 14 ? '보통 (14수)' : '정밀 (16수)'}
                     </span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 bg-stone-100 p-1 rounded-xl">
+                  <div className={`grid grid-cols-3 gap-1.5 p-1 rounded-xl border ${
+                    darkMode === 'dark' ? 'bg-stone-950/60 border-stone-800' : 'bg-stone-100 border-stone-200/60'
+                  }`}>
                     {[
                       { val: 12, label: '빠름' },
                       { val: 14, label: '보통' },
@@ -5929,8 +6048,10 @@ export default function Home() {
                       <button 
                         key={d.val}
                         onClick={() => setDepth(d.val as any)}
-                        className={`py-2 rounded-lg text-xs font-bold transition-all ${
-                          depth === d.val ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-750'
+                        className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          depth === d.val 
+                            ? 'bg-blue-600 text-white shadow-sm' 
+                            : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
                         }`}
                       >
                         {d.label}
@@ -5942,10 +6063,12 @@ export default function Home() {
                 {/* Board Theme setting */}
                 <div className="space-y-2">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-500">체스판 테마 (Theme)</span>
-                    <span className="font-bold text-slate-700">{boardThemes[boardTheme].name}</span>
+                    <span className="font-semibold text-slate-400">{language === 'ko' ? '체스판 테마 (Theme)' : 'Board Theme'}</span>
+                    <span className={`font-bold text-[11px] ${darkMode === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>{boardThemes[boardTheme].name}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 bg-stone-100 p-1 rounded-xl">
+                  <div className={`grid grid-cols-3 gap-1.5 p-1 rounded-xl border ${
+                    darkMode === 'dark' ? 'bg-stone-950/60 border-stone-800' : 'bg-stone-100 border-stone-200/60'
+                  }`}>
                     {[
                       { val: 'slate', color: 'bg-[#475569]' },
                       { val: 'emerald', color: 'bg-[#0f5132]' },
@@ -5954,11 +6077,13 @@ export default function Home() {
                       <button 
                         key={t.val}
                         onClick={() => setBoardTheme(t.val as any)}
-                        className={`py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                          boardTheme === t.val ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-750'
+                        className={`py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                          boardTheme === t.val 
+                            ? 'bg-blue-600 text-white shadow-sm' 
+                            : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
                         }`}
                       >
-                        <span className={`w-3 h-3 rounded-full ${t.color} border border-black/10`} />
+                        <span className={`w-2.5 h-2.5 rounded-full ${t.color} border border-black/20`} />
                         <span>{t.val === 'slate' ? '슬레이트' : t.val === 'emerald' ? '에메랄드' : '코발트'}</span>
                       </button>
                     ))}
@@ -5966,28 +6091,20 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Info Tips */}
-              <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200/50 text-xs text-slate-550 flex items-start gap-2.5">
-                <Info size={16} className="text-slate-400 shrink-0 mt-0.5" />
-                <p className="leading-relaxed">
-                  Lichess 경기 URL을 복사하여 붙여넣으면 별도의 PGN 복사 없이 바로 자동 분석이 시작됩니다. Speerchess의 슬라이더 평가 바로 더욱 쾌적하게 복기하세요.
-                </p>
-              </div>
-
               {/* Start Button */}
               <button 
-                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-slate-500/10 active:scale-98 disabled:opacity-50 disabled:active:scale-100"
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold py-3.5 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 disabled:opacity-50 disabled:active:scale-100 cursor-pointer text-xs"
                 onClick={handleAnalyze} 
                 disabled={!pgn.trim() || isLoadingPgn}
               >
                 {isLoadingPgn ? (
                   <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                     경기 로딩 중...
                   </>
                 ) : (
                   <>
-                    <Play size={18} fill="currentColor" /> 리뷰 시작하기
+                    <Play size={18} fill="currentColor" /> {language === 'ko' ? '리뷰 & 분석 시작하기' : 'Start Game Review'}
                   </>
                 )}
               </button>
@@ -5998,22 +6115,28 @@ export default function Home() {
         {/* Sidebar Drawer Overlay */}
         {isSidebarOpen && (
           <div 
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end transition-opacity duration-300"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex justify-end transition-opacity duration-300"
             onClick={() => setIsSidebarOpen(false)}
           >
             <div 
-              className="w-72 h-full bg-white shadow-2xl p-5 flex flex-col justify-between border-l border-stone-200 transition-transform duration-300 translate-x-0"
+              className={`w-72 h-full shadow-2xl p-5 flex flex-col justify-between border-l transition-transform duration-300 translate-x-0 ${
+                darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200 text-slate-800'
+              }`}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="space-y-6">
+              <div className="space-y-6 overflow-y-auto no-scrollbar pr-1">
                 {/* Sidebar Header */}
-                <div className="flex justify-between items-center pb-4 border-b border-stone-100">
-                  <h3 className="font-black text-sm text-slate-800 uppercase tracking-widest flex items-center gap-1.5">
-                    <Settings size={16} /> 분석 도구 메뉴
+                <div className={`flex justify-between items-center pb-4 border-b ${
+                  darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+                }`}>
+                  <h3 className="font-black text-sm uppercase tracking-widest flex items-center gap-1.5">
+                    <Settings size={16} className="text-blue-500" /> 분석 도구 메뉴
                   </h3>
                   <button 
                     onClick={() => setIsSidebarOpen(false)}
-                    className="p-1.5 hover:bg-stone-100 rounded-full transition-colors text-slate-500"
+                    className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                      darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-100 text-slate-500'
+                    }`}
                   >
                     <X size={20} />
                   </button>
@@ -6031,7 +6154,9 @@ export default function Home() {
                         handleDownloadGif();
                       }} 
                       disabled={isExportingGif}
-                      className="flex-1 bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer h-11"
+                      className={`flex-1 disabled:opacity-50 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer h-11 ${
+                        darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                      }`}
                     >
                       {isExportingGif ? (
                         <>
@@ -6048,7 +6173,9 @@ export default function Home() {
                     <button 
                       onClick={() => setShowGifSettings(prev => !prev)}
                       className={`p-3 rounded-xl border flex items-center justify-center transition-all cursor-pointer h-11 w-11 active:scale-95 ${
-                        showGifSettings ? 'bg-slate-100 border-slate-300 text-slate-850' : 'bg-white hover:bg-stone-50 border-stone-300 text-slate-600'
+                        showGifSettings 
+                          ? (darkMode === 'dark' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-850')
+                          : (darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 border-stone-700 text-slate-300' : 'bg-white hover:bg-stone-50 border-stone-300 text-slate-600')
                       }`}
                       title="GIF 설정"
                     >
@@ -6058,11 +6185,15 @@ export default function Home() {
 
                   {/* Collapsible Settings Panel */}
                   {showGifSettings && (
-                    <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-3 text-xs">
+                    <div className={`p-3 rounded-xl border space-y-3 text-xs ${
+                      darkMode === 'dark' ? 'bg-stone-950/80 border-stone-800' : 'bg-stone-50 border-stone-200'
+                    }`}>
                       {/* Annotation Mode */}
                       <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-500 block">GIF 주석 표시</label>
-                        <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200">
+                        <label className="text-[10px] font-bold text-slate-400 block">GIF 주석 표시</label>
+                        <div className={`grid grid-cols-3 gap-1 p-1 rounded-lg border ${
+                          darkMode === 'dark' ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'
+                        }`}>
                           {(['standard', 'all', 'none'] as const).map((mode) => (
                             <button
                               key={mode}
@@ -6070,8 +6201,8 @@ export default function Home() {
                               onClick={() => setGifAnnotationMode(mode)}
                               className={`py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
                                 gifAnnotationMode === mode 
-                                  ? 'bg-slate-800 text-white shadow-sm' 
-                                  : 'text-slate-500 hover:bg-stone-50'
+                                  ? 'bg-blue-600 text-white shadow-sm' 
+                                  : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:bg-stone-50')
                               }`}
                             >
                               {mode === 'standard' ? '표준설정' : mode === 'all' ? '전체설정' : '표시안함'}
@@ -6082,8 +6213,10 @@ export default function Home() {
 
                       {/* Orientation */}
                       <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-500 block">보드 방향 (아래쪽 기준)</label>
-                        <div className="grid grid-cols-2 gap-1 bg-white p-1 rounded-lg border border-stone-200">
+                        <label className="text-[10px] font-bold text-slate-400 block">보드 방향 (아래쪽 기준)</label>
+                        <div className={`grid grid-cols-2 gap-1 p-1 rounded-lg border ${
+                          darkMode === 'dark' ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'
+                        }`}>
                           {(['white', 'black'] as const).map((orient) => (
                             <button
                               key={orient}
@@ -6091,8 +6224,8 @@ export default function Home() {
                               onClick={() => setGifOrientation(orient)}
                               className={`py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
                                 gifOrientation === orient 
-                                  ? 'bg-slate-800 text-white shadow-sm' 
-                                  : 'text-slate-500 hover:bg-stone-50'
+                                  ? 'bg-blue-600 text-white shadow-sm' 
+                                  : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:bg-stone-50')
                               }`}
                             >
                               {orient === 'white' ? '백 (White)' : '흑 (Black)'}
@@ -6102,13 +6235,17 @@ export default function Home() {
                       </div>
 
                       {/* Show Names Toggle */}
-                      <div className="flex justify-between items-center pt-2 border-t border-stone-200">
-                        <label className="text-[10px] font-bold text-slate-600">플레이어 이름 표시</label>
+                      <div className={`flex justify-between items-center pt-2 border-t ${
+                        darkMode === 'dark' ? 'border-stone-800' : 'border-stone-200'
+                      }`}>
+                        <label className={`text-[10px] font-bold ${darkMode === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>플레이어 이름 표시</label>
                         <button
                           type="button"
                           onClick={() => setGifShowNames(prev => !prev)}
                           className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
-                            gifShowNames ? 'bg-slate-800 justify-end' : 'bg-stone-300 justify-start'
+                            gifShowNames 
+                              ? 'bg-blue-600 justify-end' 
+                              : (darkMode === 'dark' ? 'bg-stone-700 justify-start' : 'bg-stone-300 justify-start')
                           }`}
                         >
                           <div className="w-4 h-4 rounded-full bg-white transition-transform shadow-sm" />
@@ -6123,7 +6260,9 @@ export default function Home() {
                       setIsSidebarOpen(false);
                       handleCopyPgn();
                     }}
-                    className="w-full bg-white hover:bg-stone-50 text-slate-800 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-stone-300 shadow-sm text-xs active:scale-95 cursor-pointer"
+                    className={`w-full font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all border shadow-sm text-xs active:scale-95 cursor-pointer ${
+                      darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 text-stone-200 border-stone-750' : 'bg-white hover:bg-stone-50 text-slate-800 border-stone-300'
+                    }`}
                   >
                     <Layers size={14} />
                     PGN 복사하기
@@ -6133,7 +6272,9 @@ export default function Home() {
                   <button 
                     onClick={handleShareGame}
                     disabled={isSharing}
-                    className="w-full bg-slate-800 hover:bg-slate-750 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer"
+                    className={`w-full disabled:opacity-50 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer ${
+                      darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                    }`}
                   >
                     {isSharing ? (
                       <>
@@ -6160,7 +6301,9 @@ export default function Home() {
 
                   {/* Shared link display */}
                   {sharedHashid && typeof window !== 'undefined' && (
-                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[10px] text-slate-600 text-center font-mono select-all mt-2">
+                    <div className={`p-2.5 rounded-lg border text-[10px] text-center font-mono select-all mt-2 ${
+                      darkMode === 'dark' ? 'bg-stone-950 border-stone-800 text-blue-400' : 'bg-slate-50 border-slate-200 text-slate-600'
+                    }`}>
                       공유 링크: {window.location.origin}/{sharedHashid}
                     </div>
                   )}
@@ -6170,7 +6313,7 @@ export default function Home() {
                       setIsSidebarOpen(false);
                       exportReviewToAnalyze();
                     }}
-                    className="w-full bg-blue-600 hover:bg-blue-650 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer mt-2"
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer mt-2"
                   >
                     <GitBranch size={14} />
                     {language === 'ko' ? '자유 분석판으로 내보내기' : 'Export to Analyze'}
@@ -6180,18 +6323,20 @@ export default function Home() {
 
               {/* Relaxation YouTube Links */}
               {hyperlinks.length > 0 && (
-                <div className="border-t border-stone-100 pt-4 space-y-2">
+                <div className={`border-t pt-4 space-y-2 ${darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'}`}>
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 flex items-center gap-1">
                     ☕ 쉬어가는 길 (기분 전환)
                   </span>
-                  <div className="space-y-1.5 text-xs text-slate-600">
+                  <div className="space-y-1.5 text-xs">
                     {hyperlinks.map((link, idx) => (
                       <a
                         key={idx}
                         href={link.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 text-slate-700 hover:text-slate-900 font-bold hover:underline transition-all py-0.5 active:scale-98"
+                        className={`flex items-center gap-1.5 font-bold hover:underline transition-all py-0.5 active:scale-98 ${
+                          darkMode === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-700 hover:text-slate-900'
+                        }`}
                       >
                         <span className="text-[10px]">📺</span>
                         <span className="truncate max-w-[200px]">{link.text}</span>
@@ -6202,7 +6347,9 @@ export default function Home() {
               )}
 
               {/* Sidebar Footer Info */}
-              <div className="text-[9px] text-slate-400 font-bold text-center border-t border-stone-100 pt-4 leading-relaxed">
+              <div className={`text-[9px] text-slate-500 font-bold text-center border-t pt-4 leading-relaxed ${
+                darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+              }`}>
                 speerchess analysis dashboard<br/>© 2026 speerchess
               </div>
             </div>
@@ -6416,12 +6563,21 @@ export default function Home() {
 
         {/* VIEW: EXPLORE */}
         {view === 'EXPLORE' && activeTab === 'review' && (
-          <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
-            <header className="flex items-center justify-between py-3 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
-              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+          <div className={`flex-1 flex flex-col overflow-hidden ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <header className={`flex items-center justify-between py-2.5 px-4 border-b z-10 shadow-sm shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
+              <button 
+                onClick={() => setView('INPUT')} 
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+              >
                 <ChevronLeft size={22} />
               </button>
-              <h2 className="font-black text-base text-slate-850">
+              <h2 className="font-black text-base">
                 {language === 'ko' ? '게임 탐색하기' : 'Explore Games'}
               </h2>
               <div className="w-10"></div>
@@ -6446,9 +6602,13 @@ export default function Home() {
                       <div 
                         key={game.hashid} 
                         onClick={() => loadGameByHashid(game.hashid)}
-                        className="bg-white rounded-2xl border border-stone-200/60 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98"
+                        className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 ${
+                          darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+                        }`}
                       >
-                        <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-150">
+                        <div className={`w-full aspect-square overflow-hidden rounded-xl border ${
+                          darkMode === 'dark' ? 'border-stone-800' : 'border-stone-150'
+                        }`}>
                           <Chessboard 
                             options={{
                               position: finalFen,
@@ -6457,13 +6617,13 @@ export default function Home() {
                           />
                         </div>
                         <div className="w-full text-center space-y-0.5">
-                          <div className="text-xs font-black text-slate-800 truncate px-1">
+                          <div className="text-xs font-black truncate px-1">
                             {players.white} vs {players.black}
                           </div>
-                          <div className="text-[10px] font-bold text-slate-500">
+                          <div className="text-[10px] font-bold text-slate-400">
                             {getGameResult(game.pgn, language)}
                           </div>
-                          <div className="text-[9px] text-slate-450 font-bold">
+                          <div className="text-[9px] text-slate-500 font-bold">
                             {new Date(game.created_at || '').toLocaleDateString(language === 'ko' ? 'ko-KR' : 'en-US', {
                               year: 'numeric', month: 'short', day: 'numeric'
                             })}
@@ -6480,12 +6640,21 @@ export default function Home() {
 
         {/* VIEW: BRILLIANT */}
         {view === 'BRILLIANT' && (
-          <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
-            <header className="flex items-center justify-between py-3 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
-              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+          <div className={`flex-1 flex flex-col overflow-hidden ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <header className={`flex items-center justify-between py-2.5 px-4 border-b z-10 shadow-sm shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
+              <button 
+                onClick={() => setView('INPUT')} 
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+              >
                 <ChevronLeft size={22} />
               </button>
-              <h2 className="font-black text-base text-slate-850">
+              <h2 className="font-black text-base">
                 {language === 'ko' ? '!! 탁월 저장소' : '!! Brilliant Repository'}
               </h2>
               <div className="w-10"></div>
@@ -6502,14 +6671,18 @@ export default function Home() {
                     <div 
                       key={`${item.game.hashid}-${idx}`}
                       onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
-                      className="bg-white rounded-2xl border border-stone-200/60 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative"
+                      className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative ${
+                        darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+                      }`}
                     >
                       <span className={`absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm ${
                         item.classification === 'Brilliant' ? 'bg-cyan-500 text-white' : 'bg-sky-500 text-white'
                       }`}>
                         {item.classification === 'Brilliant' ? '!! Brilliant' : '! Great'}
                       </span>
-                      <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-150 relative">
+                      <div className={`w-full aspect-square overflow-hidden rounded-xl border relative ${
+                        darkMode === 'dark' ? 'border-stone-800' : 'border-stone-150'
+                      }`}>
                         <Chessboard 
                           options={{
                             position: item.afterFen,
@@ -6519,10 +6692,10 @@ export default function Home() {
                         />
                       </div>
                       <div className="w-full text-center space-y-0.5">
-                        <div className="text-xs font-black text-slate-800 truncate">
+                        <div className="text-xs font-black truncate">
                           {item.whitePlayer} vs {item.blackPlayer}
                         </div>
-                        <div className="text-[10px] font-black text-cyan-600">
+                        <div className="text-[10px] font-black text-cyan-500">
                           {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
                         </div>
                       </div>
@@ -6536,12 +6709,21 @@ export default function Home() {
 
         {/* VIEW: BLUNDER */}
         {view === 'BLUNDER' && (
-          <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
-            <header className="flex items-center justify-between py-3 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
-              <button onClick={() => setView('INPUT')} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+          <div className={`flex-1 flex flex-col overflow-hidden ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <header className={`flex items-center justify-between py-2.5 px-4 border-b z-10 shadow-sm shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
+              <button 
+                onClick={() => setView('INPUT')} 
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+              >
                 <ChevronLeft size={22} />
               </button>
-              <h2 className="font-black text-base text-slate-850">
+              <h2 className="font-black text-base">
                 {language === 'ko' ? '?? 블런더 저장소' : '?? Blunder Repository'}
               </h2>
               <div className="w-10"></div>
@@ -6558,12 +6740,16 @@ export default function Home() {
                     <div 
                       key={`${item.game.hashid}-${idx}`}
                       onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
-                      className="bg-white rounded-2xl border border-stone-200/60 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative"
+                      className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative ${
+                        darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
+                      }`}
                     >
                       <span className="absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm">
                         ?? Blunder
                       </span>
-                      <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-150 relative">
+                      <div className={`w-full aspect-square overflow-hidden rounded-xl border relative ${
+                        darkMode === 'dark' ? 'border-stone-800' : 'border-stone-150'
+                      }`}>
                         <Chessboard 
                           options={{
                             position: item.afterFen,
@@ -6573,10 +6759,10 @@ export default function Home() {
                         />
                       </div>
                       <div className="w-full text-center space-y-0.5">
-                        <div className="text-xs font-black text-slate-800 truncate">
+                        <div className="text-xs font-black truncate">
                           {item.whitePlayer} vs {item.blackPlayer}
                         </div>
-                        <div className="text-[10px] font-black text-red-600">
+                        <div className="text-[10px] font-black text-red-500">
                           {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
                         </div>
                       </div>
@@ -6590,9 +6776,13 @@ export default function Home() {
 
         {/* Highlight Comparison Modal */}
         {selectedHighlight && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl space-y-4 border border-stone-100 flex flex-col">
-              <div className="flex justify-between items-center pb-2 border-b border-stone-100 shrink-0">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className={`rounded-3xl w-full max-w-sm p-5 shadow-2xl space-y-4 border flex flex-col ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-100 text-slate-800'
+            }`}>
+              <div className={`flex justify-between items-center pb-2 border-b shrink-0 ${
+                darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+              }`}>
                 <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${
                   selectedHighlight.classification === 'Brilliant' ? 'bg-cyan-100 text-cyan-800' :
                   selectedHighlight.classification === 'Great' ? 'bg-sky-100 text-sky-800' :
@@ -6604,13 +6794,17 @@ export default function Home() {
                 </span>
                 <button 
                   onClick={() => setSelectedHighlight(null)}
-                  className="p-1 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer"
+                  className={`p-1 rounded-full cursor-pointer transition-colors ${
+                    darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-100 text-slate-500'
+                  }`}
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              <div className="w-full aspect-square overflow-hidden rounded-2xl border border-stone-200/80 shadow-md relative shrink-0">
+              <div className={`w-full aspect-square overflow-hidden rounded-2xl border shadow-md relative shrink-0 ${
+                darkMode === 'dark' ? 'border-stone-800' : 'border-stone-200/80'
+              }`}>
                 <Chessboard 
                   options={{
                     position: selectedHighlight.showAfterBoard ? selectedHighlight.afterFen : selectedHighlight.beforeFen,
@@ -6627,15 +6821,14 @@ export default function Home() {
                         const isBrilliantOrGreat = selectedHighlight.classification === 'Brilliant' || selectedHighlight.classification === 'Great';
                         if (isTargetSquare || isSourceSquare) {
                           if (isBrilliantOrGreat) {
-                            highlightStyle = 'bg-emerald-500/35'; // Greenish highlight for brilliant/great
+                            highlightStyle = 'bg-emerald-500/35';
                           } else if (selectedHighlight.classification === 'Inaccuracy' || selectedHighlight.classification === 'Mistake' || selectedHighlight.classification === 'Blunder') {
-                            highlightStyle = 'bg-yellow-500/35'; // Yellowish highlight for blunder/mistake/inaccuracy
+                            highlightStyle = 'bg-yellow-500/35';
                           } else {
-                            highlightStyle = 'bg-yellow-500/20'; // Default move highlight
+                            highlightStyle = 'bg-yellow-500/20';
                           }
                         }
                       } else {
-                        // Highlight opponent's last move when showAfterBoard is false
                         const isOpponentTarget = selectedHighlight.opponentLastMoveTo === square;
                         const isOpponentSource = selectedHighlight.opponentLastMoveFrom === square;
                         if (isOpponentTarget || isOpponentSource) {
@@ -6659,14 +6852,14 @@ export default function Home() {
                   selectedHighlight.classification === 'Blunder' ? (
                     <button 
                       onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: true } : null)}
-                      className="w-full bg-red-600 hover:bg-red-550 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all shadow-md active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+                      className="w-full bg-red-600 hover:bg-red-500 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all shadow-md active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans"
                     >
                       ❓ {language === 'ko' ? '블런더 확인하기' : 'Verify Blunder Move'}
                     </button>
                   ) : (
                     <button 
                       onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: true } : null)}
-                      className="w-full bg-cyan-600 hover:bg-cyan-550 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all shadow-md active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+                      className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all shadow-md active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans"
                     >
                       ✨ {language === 'ko' ? '탁월 확인하기' : 'Verify Brilliant Move'}
                     </button>
@@ -6674,7 +6867,9 @@ export default function Home() {
                 ) : (
                   <button 
                     onClick={() => setSelectedHighlight(prev => prev ? { ...prev, showAfterBoard: false } : null)}
-                    className="w-full bg-stone-100 hover:bg-stone-200 text-slate-800 font-extrabold py-3.5 rounded-2xl text-xs transition-all active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans shadow-inner border border-stone-200/50"
+                    className={`w-full font-extrabold py-3.5 rounded-2xl text-xs transition-all active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer font-sans shadow-inner border ${
+                      darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white border-stone-700' : 'bg-stone-100 hover:bg-stone-200 text-slate-800 border-stone-200/50'
+                    }`}
                   >
                     🔄 {language === 'ko' ? '다시 확인하기' : 'Replay Move'}
                   </button>
@@ -6685,13 +6880,15 @@ export default function Home() {
                 <div className="text-[10px] text-slate-400 uppercase tracking-widest truncate">
                   {selectedHighlight.whitePlayer} vs {selectedHighlight.blackPlayer}
                 </div>
-                <div className="text-base text-slate-850 font-black">
+                <div className="text-base font-black">
                   {Math.floor(selectedHighlight.moveIndex / 2) + 1}. {selectedHighlight.moveIndex % 2 === 0 ? '백' : '흑'} {selectedHighlight.moveSan}
                 </div>
               </div>
 
               {selectedHighlight.classification === 'Blunder' && selectedHighlight.sarcasticComment && (
-                <div className="bg-red-50/50 border border-red-150/40 p-3 rounded-2xl text-xs text-red-800 text-center leading-relaxed font-semibold">
+                <div className={`p-3 rounded-2xl text-xs text-center leading-relaxed font-semibold border ${
+                  darkMode === 'dark' ? 'bg-red-950/30 border-red-800/40 text-red-300' : 'bg-red-50/50 border-red-150/40 text-red-800'
+                }`}>
                   😂 {selectedHighlight.sarcasticComment}
                 </div>
               )}
@@ -6702,7 +6899,9 @@ export default function Home() {
                   setSelectedHighlight(null);
                   loadGameByHashid(hash);
                 }}
-                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-3 rounded-2xl text-xs transition-all shadow-md cursor-pointer shrink-0 active:scale-98 font-sans"
+                className={`w-full font-bold py-3 rounded-2xl text-xs transition-all shadow-md cursor-pointer shrink-0 active:scale-98 font-sans ${
+                  darkMode === 'dark' ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                }`}
               >
                 {language === 'ko' ? '전체 경기 분석 보기' : 'View Full Game Analysis'}
               </button>
@@ -6712,13 +6911,19 @@ export default function Home() {
 
         {/* VIEW: CHESSLE */}
         {view === 'CHESSLE' && activeTab === 'chessle' && chesslePuzzle && (
-          <div className="flex-1 flex flex-col bg-stone-50 overflow-hidden">
-            <header className="flex items-center justify-between py-2 px-4 bg-white border-b border-stone-200/60 z-10 shadow-sm shrink-0">
-              <button onClick={() => { setView('INPUT'); setChesslePuzzle(null); }} className="p-2 hover:bg-stone-50 rounded-full transition-colors text-slate-600 cursor-pointer">
+          <div className={`flex-1 flex flex-col overflow-hidden ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <header className={`flex items-center justify-between py-2 px-4 border-b z-10 shadow-sm shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
+              <button onClick={() => { setView('INPUT'); setChesslePuzzle(null); }} className={`p-2 rounded-full transition-colors cursor-pointer ${
+                darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-600'
+              }`}>
                 <ChevronLeft size={22} />
               </button>
               <div className="text-center">
-                <h2 className="font-black text-sm text-slate-850">
+                <h2 className="font-black text-sm">
                   {language === 'ko' ? '🧩 Chessle (체슬)' : '🧩 Chessle'}
                 </h2>
                 <div className="text-[9px] font-black text-slate-400 tracking-wider">
@@ -6728,7 +6933,9 @@ export default function Home() {
               <div className="flex items-center gap-1.5">
                 <button 
                   onClick={() => setChessleBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
-                  className="p-1.5 hover:bg-stone-100 rounded-lg text-slate-600 cursor-pointer font-bold text-xs"
+                  className={`p-1.5 rounded-lg cursor-pointer font-bold text-xs ${
+                    darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-300' : 'hover:bg-stone-100 text-slate-600'
+                  }`}
                   title="보드 뒤집기"
                 >
                   ⇅
@@ -6736,7 +6943,9 @@ export default function Home() {
                 <button 
                   onClick={() => setChessleAutofill(prev => !prev)}
                   className={`px-2 py-1 rounded-lg text-[9px] font-black border transition-all cursor-pointer ${
-                    chessleAutofill ? 'bg-slate-800 text-white border-slate-800 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:bg-stone-50'
+                    chessleAutofill 
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm' 
+                      : (darkMode === 'dark' ? 'bg-stone-850 text-slate-400 border-stone-750' : 'bg-white text-slate-500 border-slate-200 hover:bg-stone-50')
                   }`}
                   title="자동 채우기"
                 >
@@ -6798,9 +7007,11 @@ export default function Home() {
                         className={`h-9 border rounded-xl flex items-center justify-center font-extrabold text-xs transition-all ${
                           move ? (
                             isCorrectAutofilled ? 'bg-green-500 text-white border-green-500' :
-                            i % 2 === 0 ? 'bg-slate-800 text-white border-slate-800' : 'bg-slate-100 text-slate-700 border-stone-200'
+                            i % 2 === 0 ? 'bg-blue-600 text-white border-blue-500' : (darkMode === 'dark' ? 'bg-stone-800 text-slate-200 border-stone-700' : 'bg-slate-100 text-slate-700 border-stone-200')
                           ) : (
-                            i === chessleMoves.length ? 'border-slate-800 ring-2 ring-slate-800/20 bg-white' : 'border-dashed border-stone-250 bg-stone-50/50'
+                            i === chessleMoves.length 
+                              ? 'border-blue-500 ring-2 ring-blue-500/20 ' + (darkMode === 'dark' ? 'bg-stone-900' : 'bg-white') 
+                              : 'border-dashed ' + (darkMode === 'dark' ? 'border-stone-800 bg-stone-900/30' : 'border-stone-250 bg-stone-50/50')
                           )
                         }`}
                       >
@@ -6815,21 +7026,25 @@ export default function Home() {
                 <button 
                   onClick={handleChessleUndo}
                   disabled={chessleMoves.length === 0 || (chessleAutofill && chessleCorrectMoves[chessleMoves.length - 1] !== null)}
-                  className="bg-white hover:bg-stone-50 border border-stone-250 text-slate-700 font-bold py-3 rounded-2xl text-xs transition-all active:scale-95 disabled:opacity-40 cursor-pointer shadow-sm"
+                  className={`border font-bold py-3 rounded-2xl text-xs transition-all active:scale-95 disabled:opacity-40 cursor-pointer shadow-sm ${
+                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-white hover:bg-stone-50 border-stone-250 text-slate-700'
+                  }`}
                 >
                   {language === 'ko' ? '↩ 되돌리기' : '↩ Undo'}
                 </button>
                 <button 
                   onClick={handleChessleSubmit}
                   disabled={chessleMoves.length < 10}
-                  className="bg-slate-800 hover:bg-slate-750 disabled:opacity-45 text-white font-bold py-3 rounded-2xl text-xs transition-all active:scale-95 cursor-pointer shadow-md"
+                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-45 text-white font-bold py-3 rounded-2xl text-xs transition-all active:scale-95 cursor-pointer shadow-md"
                 >
                   {language === 'ko' ? '추측 제출 (Submit)' : 'Submit Guess'}
                 </button>
               </div>
 
               <div className="w-full max-w-[340px] flex-1 py-4 flex flex-col justify-start gap-2 overflow-y-auto">
-                <div className="text-[9px] font-black text-slate-450 uppercase tracking-widest text-center border-b border-stone-200/50 pb-1 shrink-0">
+                <div className={`text-[9px] font-black text-slate-450 uppercase tracking-widest text-center border-b pb-1 shrink-0 ${
+                  darkMode === 'dark' ? 'border-stone-850' : 'border-stone-200/50'
+                }`}>
                   {language === 'ko' ? '시도 기록 (Feedback)' : 'Attempts History'}
                 </div>
                 <div className="space-y-1.5 w-full">
@@ -6848,7 +7063,7 @@ export default function Home() {
                               className={`h-7 rounded-lg flex items-center justify-center text-white text-[9px] truncate ${
                                 status === 'correct' ? 'bg-green-600 shadow-sm shadow-green-600/20' :
                                 status === 'present' ? 'bg-yellow-500 shadow-sm shadow-yellow-500/20 text-slate-900' :
-                                'bg-stone-400'
+                                (darkMode === 'dark' ? 'bg-stone-800 text-slate-400' : 'bg-stone-400')
                               }`}
                               title={status}
                             >
@@ -6862,16 +7077,22 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="w-full max-w-[340px] grid grid-cols-2 gap-2 pt-2 border-t border-stone-200/40 shrink-0">
+              <div className={`w-full max-w-[340px] grid grid-cols-2 gap-2 pt-2 border-t shrink-0 ${
+                darkMode === 'dark' ? 'border-stone-850' : 'border-stone-200/40'
+              }`}>
                 <button 
                   onClick={() => setShowEndPositionHint(true)}
-                  className="bg-stone-100 hover:bg-stone-200 text-slate-700 font-bold py-2 rounded-xl text-[10px] transition-all cursor-pointer"
+                  className={`font-bold py-2 rounded-xl text-[10px] transition-all cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 text-slate-300' : 'bg-stone-100 hover:bg-stone-200 text-slate-700'
+                  }`}
                 >
                   🏁 {language === 'ko' ? '종료 포지션 힌트' : 'End Position Hint'}
                 </button>
                 <button 
                   onClick={() => setShowMove7Hint(true)}
-                  className="bg-stone-100 hover:bg-stone-200 text-slate-700 font-bold py-2 rounded-xl text-[10px] transition-all cursor-pointer"
+                  className={`font-bold py-2 rounded-xl text-[10px] transition-all cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 text-slate-300' : 'bg-stone-100 hover:bg-stone-200 text-slate-700'
+                  }`}
                 >
                   7️⃣ {language === 'ko' ? '7번째 수 힌트' : '7th Move Hint'}
                 </button>
@@ -6879,11 +7100,17 @@ export default function Home() {
             </div>
 
             {showEndPositionHint && (
-              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl space-y-4 border border-stone-100 text-center flex flex-col animate-fade-in">
-                  <div className="flex justify-between items-center pb-2 border-b border-stone-100 shrink-0">
-                    <span className="text-xs font-black text-slate-800">🏁 {language === 'ko' ? '종료 포지션 힌트' : 'End Position Hint'}</span>
-                    <button onClick={() => setShowEndPositionHint(false)} className="p-1 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer">
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className={`rounded-3xl w-full max-w-sm p-5 shadow-2xl space-y-4 border text-center flex flex-col animate-fade-in ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-100 text-slate-800'
+                }`}>
+                  <div className={`flex justify-between items-center pb-2 border-b shrink-0 ${
+                    darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+                  }`}>
+                    <span className="text-xs font-black">🏁 {language === 'ko' ? '종료 포지션 힌트' : 'End Position Hint'}</span>
+                    <button onClick={() => setShowEndPositionHint(false)} className={`p-1 rounded-full cursor-pointer transition-colors ${
+                      darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-100 text-slate-500'
+                    }`}>
                       <X size={18} />
                     </button>
                   </div>
@@ -6895,7 +7122,7 @@ export default function Home() {
                   </p>
                   <button 
                     onClick={() => setShowEndPositionHint(false)}
-                    className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
                   >
                     {language === 'ko' ? '닫기' : 'Close'}
                   </button>
@@ -6904,27 +7131,37 @@ export default function Home() {
             )}
 
             {showMove7Hint && (
-              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-3xl w-full max-w-xs p-5 shadow-2xl space-y-4 border border-stone-100 text-center flex flex-col animate-fade-in">
-                  <div className="flex justify-between items-center pb-2 border-b border-stone-100 shrink-0">
-                    <span className="text-xs font-black text-slate-800">7️⃣ {language === 'ko' ? '7번째 수 힌트' : '7th Move Hint'}</span>
-                    <button onClick={() => setShowMove7Hint(false)} className="p-1 hover:bg-stone-100 rounded-full text-slate-500 cursor-pointer">
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className={`rounded-3xl w-full max-w-xs p-5 shadow-2xl space-y-4 border text-center flex flex-col animate-fade-in ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-100 text-slate-800'
+                }`}>
+                  <div className={`flex justify-between items-center pb-2 border-b shrink-0 ${
+                    darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
+                  }`}>
+                    <span className="text-xs font-black">7️⃣ {language === 'ko' ? '7번째 수 힌트' : '7th Move Hint'}</span>
+                    <button onClick={() => setShowMove7Hint(false)} className={`p-1 rounded-full cursor-pointer transition-colors ${
+                      darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-100 text-slate-500'
+                    }`}>
                       <X size={18} />
                     </button>
                   </div>
                   <div className="space-y-2 py-4">
-                    <div className="flex justify-between items-center bg-stone-50 p-2.5 rounded-xl border border-stone-150">
+                    <div className={`flex justify-between items-center p-2.5 rounded-xl border ${
+                      darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-stone-50 border-stone-150'
+                    }`}>
                       <span className="text-xs font-bold text-slate-400">{language === 'ko' ? '7번째 수 (백)' : '7th Move (White)'}</span>
-                      <span className="text-sm font-black text-slate-800">{chesslePuzzle.move7w}</span>
+                      <span className="text-sm font-black">{chesslePuzzle.move7w}</span>
                     </div>
-                    <div className="flex justify-between items-center bg-stone-50 p-2.5 rounded-xl border border-stone-150">
+                    <div className={`flex justify-between items-center p-2.5 rounded-xl border ${
+                      darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-stone-50 border-stone-150'
+                    }`}>
                       <span className="text-xs font-bold text-slate-400">{language === 'ko' ? '8번째 수 (흑)' : '8th Move (Black)'}</span>
-                      <span className="text-sm font-black text-slate-800">{chesslePuzzle.move7b}</span>
+                      <span className="text-sm font-black">{chesslePuzzle.move7b}</span>
                     </div>
                   </div>
                   <button 
                     onClick={() => setShowMove7Hint(false)}
-                    className="w-full bg-slate-800 hover:bg-slate-750 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
                   >
                     {language === 'ko' ? '닫기' : 'Close'}
                   </button>
@@ -6933,15 +7170,17 @@ export default function Home() {
             )}
 
             {(chessleSolved || chessleAttemptCount >= 6) && (
-              <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 animate-fade-in">
-                <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center space-y-4 border border-stone-100 flex flex-col">
+              <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+                <div className={`rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center space-y-4 border flex flex-col ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-100 text-slate-800'
+                }`}>
                   <div className="text-5xl animate-bounce">
                     {chessleSolved ? '🎉' : '😢'}
                   </div>
-                  <h3 className="text-2xl font-black text-slate-855">
+                  <h3 className="text-2xl font-black">
                     {chessleSolved ? (language === 'ko' ? '훌륭합니다!' : 'Brilliant!') : (language === 'ko' ? '아쉽습니다!' : 'Almost!')}
                   </h3>
-                  <p className="text-xs font-bold text-slate-500">
+                  <p className="text-xs font-bold text-slate-400">
                     {chessleSolved ? (
                       language === 'ko' ? `${chessleAttemptCount}회 시도만에 맞추셨습니다!` : `Solved in ${chessleAttemptCount}/6 attempts!`
                     ) : (
@@ -6966,7 +7205,9 @@ export default function Home() {
                         const randomGame = allGames.length > 0 ? allGames[Math.floor(Math.random() * allGames.length)] : PRESET_GAMES[0];
                         startChessleGame(randomGame);
                       }}
-                      className="bg-stone-100 hover:bg-stone-200 text-slate-800 font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer shadow-sm"
+                      className={`font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer shadow-sm ${
+                        darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-stone-100 hover:bg-stone-200 text-slate-800'
+                      }`}
                     >
                       🔄 {language === 'ko' ? '다른 체슬 풀기' : 'Solve Another Chessle'}
                     </button>
@@ -6976,7 +7217,7 @@ export default function Home() {
                         setChesslePuzzle(null);
                         loadGameByHashid(hash);
                       }}
-                      className="bg-slate-800 hover:bg-slate-750 text-white font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer shadow-md"
+                      className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-2xl text-xs transition-all cursor-pointer shadow-md"
                     >
                       🔍 {language === 'ko' ? '전체 경기 보러가기' : 'View Full Game'}
                     </button>
