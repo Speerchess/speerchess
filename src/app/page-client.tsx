@@ -2,18 +2,30 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, usePathname } from 'next/navigation';
-import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X, Home as HomeIcon, Clock, BookOpen, GitBranch, HelpCircle, Send, Moon, Sun, ArrowUpRight, Shield, Award, MoreVertical, Cpu } from 'lucide-react';
+import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X, Home as HomeIcon, Clock, BookOpen, GitBranch, HelpCircle, Send, Moon, Sun, ArrowUpRight, Shield, Award, MoreVertical, Cpu, Zap, RotateCcw, Share2, Search, UserPlus, RefreshCw } from 'lucide-react';
 import { ChessAnalyzer, GameAnalysis, MoveAnalysis } from '../lib/analyzer';
 import { generateGifClient } from '../lib/gifGeneratorClient';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { PRESET_GAMES } from '../lib/preset_games';
+import { UserGameItem } from './api/user-games/route';
 
-type ViewState = 'INPUT' | 'LOADING' | 'SUMMARY' | 'REVIEW' | 'EXPLORE' | 'BRILLIANT' | 'BLUNDER' | 'CHESSLE';
+type ViewState = 'INPUT' | 'LOADING' | 'SUMMARY' | 'REVIEW' | 'EXPLORE' | 'BRILLIANT' | 'BLUNDER' | 'CHESSLE' | 'HISTORY' | 'GAME_VIEW';
 type ReviewTabState = 'MOVES' | 'ENGINE'; // MOVES: 감상모드, ENGINE: 분석모드
 
 const SPECIAL_CLASSIFICATIONS = ['Brilliant', 'Great', 'Inaccuracy', 'Mistake', 'Blunder'];
+
+const COACH_TIPS = [
+  "Zugzwang(추크츠방)은 독일어로 '움직여야 할 의무'라는 뜻이며 플레이어가 어떤 수를 두어도 안 좋게 작용할 때를 이릅니다.",
+  "좋은 시야입니다! 당신은 유리함을 승리로 이끌 전술을 찾아냈습니다.",
+  "중앙 칸(e4, d4, e5, d5)을 지배하는 기물은 체스판 전체에 막대한 영향력을 행사합니다.",
+  "기물을 전개할 때는 한 번에 하나의 목적을 가지고 가능한 빠르게 킹을 캐슬링하여 안전을 확보하세요.",
+  "폰 구조의 약점(더블 폰, 고립된 폰, 뒤처진 폰)은 엔드게임에서 결정적인 승패 요인이 됩니다.",
+  "나이트는 체스판 중앙에서 8개의 칸을 제어하지만, 구석(Rim)에 있을 때는 4개 이하의 칸만 제어합니다.",
+  "상대방의 마지막 수가 나의 어떤 기물을 위협하고 있는지 먼저 확인하는 것이 블런더를 방지하는 최고의 습관입니다.",
+  "룩은 열린 파일(Open file)을 장악하고 7번째 랭크로 침투할 때 가장 강력한 파괴력을 발휘합니다."
+];
 
 const quotes = [
   "핀에 묶인 기물의 방어력은 환상에 불과하다. — 지크베르트 타라시",
@@ -357,6 +369,200 @@ export default function Home() {
       })
       .catch((err) => console.error('Error fetching hyperlinks:', err));
   }, []);
+
+  // Connected Accounts & Match History State
+  const [accounts, setAccounts] = useState<{ lichess?: string; chesscom?: string }>({});
+  const [activeAccountPlatform, setActiveAccountPlatform] = useState<'lichess' | 'chesscom'>('lichess');
+  const [userGames, setUserGames] = useState<UserGameItem[]>([]);
+  const [loadingUserGames, setLoadingUserGames] = useState<boolean>(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
+  const [inputLichessUser, setInputLichessUser] = useState<string>('');
+  const [inputChessComUser, setInputChessComUser] = useState<string>('');
+  const [isConnectingAccount, setIsConnectingAccount] = useState<boolean>(false);
+  
+  // Selected Game View (Chess.com-style preview before full review)
+  const [selectedUserGame, setSelectedUserGame] = useState<UserGameItem | null>(null);
+  const [userGameMoveIndex, setUserGameMoveIndex] = useState<number>(-1);
+  const [userGameMoves, setUserGameMoves] = useState<string[]>([]);
+  const [userGameFen, setUserGameFen] = useState<string>('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+  const [isGameMenuOpen, setIsGameMenuOpen] = useState<boolean>(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
+  
+  // Cached Review Accuracies
+  const [reviewedAccuracies, setReviewedAccuracies] = useState<Record<string, { whiteAccuracy: number; blackAccuracy: number; userAccuracy: number }>>({});
+  
+  // Coach Commentary & Speech Bubble State
+  const [coachComment, setCoachComment] = useState<string>(COACH_TIPS[0]);
+
+  // Load saved accounts and reviewed games from LocalStorage
+  useEffect(() => {
+    try {
+      const savedAccounts = localStorage.getItem('speerchess_accounts');
+      if (savedAccounts) {
+        const parsed = JSON.parse(savedAccounts);
+        setAccounts(parsed);
+        if (parsed.lichess) {
+          setActiveAccountPlatform('lichess');
+          fetchUserGames('lichess', parsed.lichess);
+        } else if (parsed.chesscom) {
+          setActiveAccountPlatform('chesscom');
+          fetchUserGames('chesscom', parsed.chesscom);
+        }
+      }
+      
+      const savedReviewed = localStorage.getItem('speerchess_reviewed_games');
+      if (savedReviewed) {
+        setReviewedAccuracies(JSON.parse(savedReviewed));
+      }
+    } catch (e) {
+      console.error("Failed to load local storage accounts:", e);
+    }
+  }, []);
+
+  const fetchUserGames = async (platform: 'lichess' | 'chesscom', username: string) => {
+    if (!username?.trim()) return;
+    setLoadingUserGames(true);
+    try {
+      const res = await fetch(`/api/user-games?platform=${platform}&username=${encodeURIComponent(username.trim())}&max=30`);
+      if (res.ok) {
+        const data = await res.json();
+        setUserGames(data.games || []);
+      } else {
+        setUserGames([]);
+      }
+    } catch (e) {
+      console.error("Failed to fetch games:", e);
+      setUserGames([]);
+    } finally {
+      setLoadingUserGames(false);
+    }
+  };
+
+  const handleSaveAccount = async (platform: 'lichess' | 'chesscom', username: string) => {
+    const trimmed = username.trim();
+    if (!trimmed) return;
+    setIsConnectingAccount(true);
+    try {
+      const res = await fetch(`/api/user-games?platform=${platform}&username=${encodeURIComponent(trimmed)}&max=10`);
+      if (!res.ok) {
+        alert(language === 'ko' ? '존재하지 않는 닉네임이거나 경기 데이터를 불러올 수 없습니다.' : 'User not found or unable to fetch games.');
+        return;
+      }
+      const data = await res.json();
+      const updatedAccounts = { ...accounts, [platform]: trimmed };
+      setAccounts(updatedAccounts);
+      localStorage.setItem('speerchess_accounts', JSON.stringify(updatedAccounts));
+      setActiveAccountPlatform(platform);
+      setUserGames(data.games || []);
+      setIsAccountModalOpen(false);
+    } catch (e) {
+      alert(language === 'ko' ? '계정 연동 중 오류가 발생했습니다.' : 'Failed to connect account.');
+    } finally {
+      setIsConnectingAccount(false);
+    }
+  };
+
+  const handleDisconnectAccount = (platform: 'lichess' | 'chesscom') => {
+    const updated = { ...accounts };
+    delete updated[platform];
+    setAccounts(updated);
+    localStorage.setItem('speerchess_accounts', JSON.stringify(updated));
+    if (activeAccountPlatform === platform) {
+      const remaining = Object.keys(updated) as ('lichess' | 'chesscom')[];
+      if (remaining.length > 0) {
+        setActiveAccountPlatform(remaining[0]);
+        fetchUserGames(remaining[0], updated[remaining[0]]!);
+      } else {
+        setUserGames([]);
+      }
+    }
+  };
+
+  // Open Game in Preview View (Matching Screenshot 1)
+  const openUserGame = (game: UserGameItem) => {
+    setSelectedUserGame(game);
+    const temp = new Chess();
+    try {
+      temp.loadPgn(game.pgn);
+    } catch (e) {}
+    const history = temp.history();
+    setUserGameMoves(history);
+    setUserGameMoveIndex(history.length - 1);
+    setUserGameFen(temp.fen());
+    setBoardOrientation(game.userColor);
+    setView('GAME_VIEW');
+  };
+
+  const handleUserGameGoToMove = (idx: number) => {
+    if (!selectedUserGame) return;
+    const temp = new Chess();
+    if (idx >= 0) {
+      for (let i = 0; i <= idx && i < userGameMoves.length; i++) {
+        try { temp.move(userGameMoves[i]); } catch (e) {}
+      }
+    }
+    setUserGameMoveIndex(idx);
+    setUserGameFen(temp.fen());
+  };
+
+  // Start Review directly from Game View (Matching Screenshot 2 & 3)
+  const startReviewFromGameView = async () => {
+    if (!selectedUserGame) return;
+    setPgn(selectedUserGame.pgn);
+    const randomTip = COACH_TIPS[Math.floor(Math.random() * COACH_TIPS.length)];
+    setCoachComment(randomTip);
+    
+    // Trigger analysis
+    setView('LOADING');
+    setProgress(0);
+    setQuote(randomTip);
+
+    try {
+      const analyzer = new ChessAnalyzer();
+      analyzerRef.current = analyzer;
+      
+      const gameAnalysis = await analyzer.analyzeGame(selectedUserGame.pgn, (prog) => {
+        setProgress(prog);
+      }, depth);
+
+      setAnalysis(gameAnalysis);
+      reviewChess.loadPgn(selectedUserGame.pgn);
+      setFen(new Chess().fen());
+      setCurrentMoveIndex(-1);
+
+      // Cache accuracy for Match History list
+      const userAcc = selectedUserGame.userColor === 'white' ? gameAnalysis.whiteAccuracy : gameAnalysis.blackAccuracy;
+      const updatedAccs = {
+        ...reviewedAccuracies,
+        [selectedUserGame.id]: {
+          whiteAccuracy: gameAnalysis.whiteAccuracy,
+          blackAccuracy: gameAnalysis.blackAccuracy,
+          userAccuracy: userAcc
+        }
+      };
+      setReviewedAccuracies(updatedAccs);
+      try {
+        localStorage.setItem('speerchess_reviewed_games', JSON.stringify(updatedAccs));
+      } catch (e) {}
+
+      // Set Coach Summary comment based on accuracy & result
+      let summaryTip = "좋은 시야입니다! 당신은 유리함을 승리로 이끌 전술을 찾아냈습니다.";
+      if (userAcc >= 85) {
+        summaryTip = "마스터 수준의 탁월한 경기력이었습니다! 빈틈없는 수순 전개가 돋보였습니다.";
+      } else if (userAcc >= 70) {
+        summaryTip = "훌륭한 전술적 시야를 보여주었습니다! 몇 가지 실수만 보완하면 더욱 완벽해집니다.";
+      } else {
+        summaryTip = "복기를 통해 경기 중 놓친 전술적 기회와 최선의 수를 점검해 보세요.";
+      }
+      setCoachComment(summaryTip);
+
+      setView('SUMMARY');
+    } catch (e) {
+      console.error(e);
+      alert(language === 'ko' ? '분석 중 오류가 발생했습니다.' : 'Error during game review.');
+      setView('GAME_VIEW');
+    }
+  };
   const [analysisDepth, setAnalysisDepth] = useState<number>(16);
 
   // Click-to-move state
@@ -1962,6 +2168,50 @@ export default function Home() {
     }
   };
 
+  const loadPgnToAnalyze = (targetPgn: string) => {
+    try {
+      const c = new Chess();
+      c.loadPgn(targetPgn);
+      const moves = c.history({ verbose: true });
+      const newTree: Record<string, any> = {
+        'root': {
+          id: 'root',
+          san: '',
+          from: '',
+          to: '',
+          fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          parentId: null,
+          children: [],
+          eval: 0
+        }
+      };
+      const cTemp = new Chess();
+      let currentId = 'root';
+      for (let i = 0; i < moves.length; i++) {
+        const move = moves[i];
+        const nextId = `move_${i}_${Math.random().toString(36).substr(2, 9)}`;
+        cTemp.move(move.san);
+        newTree[nextId] = {
+          id: nextId,
+          san: move.san,
+          from: move.from,
+          to: move.to,
+          fen: cTemp.fen(),
+          parentId: currentId,
+          children: []
+        };
+        newTree[currentId].children.push(nextId);
+        currentId = nextId;
+      }
+      setMoveTree(newTree);
+      setCurrentNodeId('root');
+      setAnalyzeMode('active');
+      setActiveTab('analyze');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const exportReviewToAnalyze = () => {
     if (!analysis) return;
     const newTree: Record<string, any> = {
@@ -2753,6 +3003,40 @@ export default function Home() {
             <div className="absolute right-4 bottom-2 opacity-10 shrink-0">
               <SpeerLogo className="w-28 h-28" />
             </div>
+          </div>
+
+          {/* Connected Account & Match History Banner */}
+          <div 
+            onClick={() => { setActiveTab('review'); setView('HISTORY'); }}
+            className={`p-4 rounded-2xl border flex items-center justify-between shadow-sm hover:shadow-md transition-all active:scale-98 cursor-pointer ${
+              isDark 
+                ? 'bg-gradient-to-r from-stone-900 via-stone-850 to-stone-900 border-stone-800 text-white' 
+                : 'bg-gradient-to-r from-blue-50 via-white to-stone-50 border-blue-200/80 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-black text-lg shadow-sm">
+                ⚡
+              </div>
+              <div>
+                <div className="font-black text-xs flex items-center gap-1.5">
+                  <span>{language === 'ko' ? '내 경기 기록 (Match History)' : 'My Match History'}</span>
+                  {accounts.lichess || accounts.chesscom ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-500">
+                      ● {accounts.lichess || accounts.chesscom}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-500">
+                      {language === 'ko' ? '계정 연동' : 'Link Account'}
+                    </span>
+                  )}
+                </div>
+                <div className={`text-[10px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  {language === 'ko' ? 'Lichess / Chess.com 대국을 불러와 원클릭 리뷰' : 'Fetch & Review Lichess & Chess.com games'}
+                </div>
+              </div>
+            </div>
+            <ChevronRight size={18} className="text-slate-400" />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -5000,47 +5284,460 @@ export default function Home() {
     <div className="h-screen sm:h-auto sm:min-h-screen bg-stone-900 text-slate-800 flex justify-center items-center p-0 sm:p-4 font-sans selection:bg-slate-200 selection:text-slate-900 antialiased">
       <div className="w-full max-w-md h-screen sm:h-[880px] sm:min-h-[850px] sm:max-h-[900px] sm:rounded-3xl sm:shadow-2xl sm:border border-stone-800 bg-[#fafaf9] flex flex-col overflow-hidden relative">
         
-        {/* VIEW: LOADING */}
+        {/* VIEW: LOADING (Matching Screenshot 2) */}
         {view === 'LOADING' && (
-          <div className={`flex-1 flex flex-col items-center justify-center p-6 text-center ${
+          <div className={`flex-1 flex flex-col justify-between p-4 overflow-hidden ${
             darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
           }`}>
-            <div className="w-full max-w-sm space-y-8">
-              <div className="space-y-4">
-                <div className="flex justify-center animate-bounce">
-                  <SpeerLogo className={`w-12 h-12 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
-                </div>
-                <h3 className={`text-xs font-black tracking-widest uppercase ${darkMode === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>
-                  SPEERCHESS ENGINE ANALYZING
-                </h3>
-                <p className={`text-sm font-medium max-w-xs mx-auto leading-relaxed italic ${
-                  darkMode === 'dark' ? 'text-slate-400' : 'text-slate-600'
-                }`}>
-                  "{quote}"
-                </p>
+            <header className={`flex items-center justify-between py-2 px-1 border-b shrink-0 ${
+              darkMode === 'dark' ? 'border-stone-850' : 'border-stone-200/60'
+            }`}>
+              <button 
+                onClick={() => setView(selectedUserGame ? 'GAME_VIEW' : 'INPUT')} 
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-100 text-slate-650'
+                }`}
+              >
+                <ChevronLeft size={22} />
+              </button>
+              <h2 className="font-black text-base">
+                {language === 'ko' ? '게임 리뷰' : 'Game Review'}
+              </h2>
+              <div className="w-10"></div>
+            </header>
+
+            {/* Coach Speech Bubble (Screenshot 2) */}
+            <div className="flex items-start gap-3 px-2 py-2">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-800 to-amber-600 border-2 border-white/70 shadow-md flex items-center justify-center text-2xl shrink-0">
+                👨🏾‍🏫
               </div>
-              <div className="space-y-2">
-                <div className={`h-1.5 w-full rounded-full overflow-hidden ${
-                  darkMode === 'dark' ? 'bg-stone-800' : 'bg-slate-200'
-                }`}>
-                  <div 
-                    className="h-full bg-blue-600 transition-all duration-300 ease-out"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <p className="text-xs font-black tracking-wider text-slate-500">{Math.round(progress)}% COMPLETE</p>
+              <div className={`flex-1 p-3.5 rounded-2xl shadow-md border text-xs font-semibold leading-relaxed relative ${
+                darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-slate-100' : 'bg-white border-stone-200 text-slate-800'
+              }`}>
+                {coachComment}
+              </div>
+            </div>
+
+            {/* Live Board Preview */}
+            <div className="flex-1 flex items-center justify-center p-2">
+              <div className={`w-full max-w-[340px] aspect-square rounded-2xl overflow-hidden shadow-lg border ${
+                darkMode === 'dark' ? 'border-stone-800' : 'border-stone-200'
+              }`}>
+                <Chessboard 
+                  options={{
+                    position: fen,
+                    boardOrientation,
+                    allowDragging: false,
+                    darkSquareStyle: { backgroundColor: themeColors.dark },
+                    lightSquareStyle: { backgroundColor: themeColors.light }
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Bottom Progress Bar (Screenshot 2) */}
+            <div className={`p-4 rounded-2xl border space-y-2 shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+            }`}>
+              <div className="flex justify-between items-center text-xs font-black">
+                <span className="text-slate-400 uppercase tracking-wider">{language === 'ko' ? '정밀 수순 분석 중' : 'Analyzing moves...'}</span>
+                <span className="text-blue-500 font-extrabold">{Math.round(progress)}%</span>
+              </div>
+              <div className={`h-3 w-full rounded-full overflow-hidden ${
+                darkMode === 'dark' ? 'bg-stone-950' : 'bg-slate-100'
+              }`}>
+                <div 
+                  className="h-full bg-blue-600 transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${progress}%` }}
+                />
               </div>
             </div>
           </div>
         )}
 
-        {view !== 'LOADING' && activeTab === 'home' && renderHomeTab()}
+        {/* VIEW: HISTORY (Match History - Screenshot 5) */}
+        {view === 'HISTORY' && (
+          <div className={`flex-1 flex flex-col overflow-hidden ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <header className={`flex items-center justify-between py-3 px-4 border-b z-10 shadow-sm shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
+              <button 
+                onClick={() => setView('INPUT')} 
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+              >
+                <ChevronLeft size={22} />
+              </button>
+              <h2 className="font-black text-base">
+                {language === 'ko' ? '경기 기록' : 'Match History'}
+              </h2>
+              <div className="flex items-center gap-1.5">
+                <button 
+                  onClick={() => setIsAccountModalOpen(true)}
+                  className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                    darkMode === 'dark' ? 'bg-stone-800 border-stone-700 text-white hover:bg-stone-750' : 'bg-stone-100 border-stone-200 text-slate-700 hover:bg-stone-200'
+                  }`}
+                  title="계정 관리"
+                >
+                  <UserPlus size={15} />
+                </button>
+                <button 
+                  onClick={() => fetchUserGames(activeAccountPlatform, accounts[activeAccountPlatform] || '')}
+                  disabled={loadingUserGames || !accounts[activeAccountPlatform]}
+                  className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-800 border-stone-700 text-white hover:bg-stone-750' : 'bg-stone-100 border-stone-200 text-slate-700 hover:bg-stone-200'
+                  }`}
+                  title="새로고침"
+                >
+                  <RefreshCw size={15} className={loadingUserGames ? 'animate-spin' : ''} />
+                </button>
+              </div>
+            </header>
 
-        {view !== 'LOADING' && activeTab === 'more' && renderMoreTab()}
+            {/* Platform Selector Tabs */}
+            <div className={`flex border-b p-1 gap-1 shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900/60 border-stone-850' : 'bg-stone-100/60 border-stone-200'
+            }`}>
+              <button 
+                onClick={() => {
+                  setActiveAccountPlatform('lichess');
+                  if (accounts.lichess) fetchUserGames('lichess', accounts.lichess);
+                }}
+                className={`flex-1 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeAccountPlatform === 'lichess' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')
+                }`}
+              >
+                <span>⚡ Lichess</span>
+                {accounts.lichess && <span className="text-[10px] opacity-80">({accounts.lichess})</span>}
+              </button>
+              <button 
+                onClick={() => {
+                  setActiveAccountPlatform('chesscom');
+                  if (accounts.chesscom) fetchUserGames('chesscom', accounts.chesscom);
+                }}
+                className={`flex-1 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeAccountPlatform === 'chesscom' 
+                    ? 'bg-emerald-600 text-white shadow-sm' 
+                    : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')
+                }`}
+              >
+                <span>♟️ Chess.com</span>
+                {accounts.chesscom && <span className="text-[10px] opacity-80">({accounts.chesscom})</span>}
+              </button>
+            </div>
 
-        {view !== 'LOADING' && activeTab === 'analyze' && renderAnalyzeTab()}
+            {/* Match History List Area */}
+            <div className="flex-1 overflow-y-auto p-3 no-scrollbar space-y-2">
+              {!accounts[activeAccountPlatform] ? (
+                <div className={`p-6 rounded-3xl border text-center space-y-4 my-8 ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+                }`}>
+                  <div className="text-4xl">🔗</div>
+                  <div className="space-y-1">
+                    <h3 className="font-black text-sm">
+                      {activeAccountPlatform === 'lichess' ? 'Lichess 계정 연동' : 'Chess.com 계정 연동'}
+                    </h3>
+                    <p className="text-xs text-slate-400 font-medium">
+                      닉네임을 입력하면 최근 전적을 자동으로 불러옵니다.
+                    </p>
+                  </div>
+                  <div className="flex gap-2 max-w-xs mx-auto">
+                    <input 
+                      type="text"
+                      placeholder="닉네임 입력 (Username)..."
+                      value={activeAccountPlatform === 'lichess' ? inputLichessUser : inputChessComUser}
+                      onChange={(e) => activeAccountPlatform === 'lichess' ? setInputLichessUser(e.target.value) : setInputChessComUser(e.target.value)}
+                      className={`flex-1 p-2.5 rounded-xl border text-xs font-bold ${
+                        darkMode === 'dark' ? 'bg-stone-950 border-stone-800 text-white' : 'bg-stone-50 border-stone-200 text-slate-800'
+                      }`}
+                    />
+                    <button 
+                      onClick={() => handleSaveAccount(activeAccountPlatform, activeAccountPlatform === 'lichess' ? inputLichessUser : inputChessComUser)}
+                      disabled={isConnectingAccount}
+                      className="px-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs cursor-pointer active:scale-95 transition-all"
+                    >
+                      {isConnectingAccount ? '연결 중...' : '연동'}
+                    </button>
+                  </div>
+                </div>
+              ) : loadingUserGames ? (
+                <div className="h-64 flex flex-col items-center justify-center gap-2">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                  <span className="text-xs font-bold text-slate-400">경기 목록을 불러오는 중...</span>
+                </div>
+              ) : userGames.length === 0 ? (
+                <div className="text-center py-16 text-slate-400 font-bold text-xs">
+                  최근 진행된 경기 기록이 없습니다.
+                </div>
+              ) : (
+                userGames.map((g) => {
+                  const opponent = g.userColor === 'white' ? g.black : g.white;
+                  const reviewed = reviewedAccuracies[g.id];
+                  
+                  return (
+                    <div 
+                      key={g.id}
+                      onClick={() => openUserGame(g)}
+                      className={`p-3 rounded-2xl border flex items-center justify-between shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-98 ${
+                        darkMode === 'dark' ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+                      }`}
+                    >
+                      {/* Left: Mode Icon + Opponent Avatar & Name */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="text-lg shrink-0">
+                          {g.timeClass === 'bullet' ? '🚅' :
+                           g.timeClass === 'blitz' ? <span className="text-amber-400 font-black">⚡</span> :
+                           g.timeClass === 'rapid' ? <span className="text-emerald-500 font-black">⏱️</span> : '♟️'}
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-stone-700/30 border border-stone-600/30 flex items-center justify-center font-black text-xs shrink-0">
+                          {opponent.username.slice(0, 1).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-xs truncate max-w-[120px]">{opponent.username}</span>
+                            <span className="text-[10px] text-slate-400 font-bold">({opponent.rating})</span>
+                          </div>
+                          <div className="text-[9px] text-slate-500 font-bold">
+                            {g.timeControl || g.timeClass} • {new Date(g.date).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
 
-        {view !== 'LOADING' && activeTab === 'chessle' && !chesslePuzzle && (
+                      {/* Right: Result Badge + Review Button or Accuracy */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`w-5 h-5 rounded-md flex items-center justify-center font-black text-xs ${
+                          g.userResult === 'win' ? 'bg-emerald-600 text-white' :
+                          g.userResult === 'loss' ? 'bg-red-600 text-white' :
+                          'bg-stone-600 text-slate-200'
+                        }`}>
+                          {g.userResult === 'win' ? '+' : g.userResult === 'loss' ? '-' : '='}
+                        </span>
+
+                        {reviewed ? (
+                          <div className="px-2 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 font-black text-xs text-center min-w-[50px]">
+                            {reviewed.userAccuracy.toFixed(1)}%
+                          </div>
+                        ) : (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openUserGame(g);
+                            }}
+                            className="w-8 h-8 rounded-xl bg-lime-600 hover:bg-lime-500 text-white flex items-center justify-center shadow-md cursor-pointer transition-all active:scale-90"
+                            title="리뷰 시작"
+                          >
+                            <Star size={16} fill="currentColor" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: GAME_VIEW (Chess.com-style Game Preview - Screenshot 1) */}
+        {view === 'GAME_VIEW' && selectedUserGame && (
+          <div className={`flex-1 flex flex-col justify-between overflow-hidden ${
+            darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+          }`}>
+            <header className={`flex items-center justify-between py-2 px-4 border-b z-10 shadow-sm shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
+            }`}>
+              <button 
+                onClick={() => setView('HISTORY')} 
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+              >
+                <ChevronLeft size={22} />
+              </button>
+              <div className="flex items-center gap-1.5">
+                <SpeerLogo className={`w-5 h-5 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
+                <span className="font-black text-sm tracking-tight">{selectedUserGame.platform.toUpperCase()}</span>
+              </div>
+              <button 
+                onClick={() => setBoardOrientation(prev => prev === 'white' ? 'black' : 'white')}
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+                title="보드 뒤집기"
+              >
+                <RotateCcw size={18} />
+              </button>
+            </header>
+
+            {/* Top Player (Opponent) Bar (Screenshot 1) */}
+            {(() => {
+              const opp = selectedUserGame.userColor === 'white' ? selectedUserGame.black : selectedUserGame.white;
+              const isOppWhite = selectedUserGame.userColor === 'black';
+              return (
+                <div className={`flex items-center justify-between px-4 py-2 border-b shrink-0 ${
+                  darkMode === 'dark' ? 'bg-stone-900/60 border-stone-850' : 'bg-stone-100/60 border-stone-200'
+                }`}>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-stone-700/40 border border-stone-600/30 flex items-center justify-center font-black text-xs">
+                      {opp.username.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-black text-xs truncate">{opp.username}</span>
+                        <span className="text-[10px] text-slate-400 font-bold">({opp.rating})</span>
+                      </div>
+                      <div className="text-[9px] text-slate-400 font-bold">
+                        {isOppWhite ? '⚪ 백 (White)' : '⚫ 흑 (Black)'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`px-2.5 py-1 rounded-xl text-xs font-mono font-black border ${
+                    darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-slate-200' : 'bg-white border-stone-200 text-slate-800'
+                  }`}>
+                    {selectedUserGame.timeControl || '10:00'}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Main Interactive Chessboard */}
+            <div className="flex-1 flex items-center justify-center p-2">
+              <div className={`w-full max-w-[340px] aspect-square rounded-2xl overflow-hidden shadow-xl border ${
+                darkMode === 'dark' ? 'border-stone-800' : 'border-stone-200'
+              }`}>
+                <Chessboard 
+                  options={{
+                    position: userGameFen,
+                    boardOrientation,
+                    allowDragging: false,
+                    darkSquareStyle: { backgroundColor: themeColors.dark },
+                    lightSquareStyle: { backgroundColor: themeColors.light }
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Bottom Player (User) Bar (Screenshot 1) */}
+            {(() => {
+              const me = selectedUserGame.userColor === 'white' ? selectedUserGame.white : selectedUserGame.black;
+              return (
+                <div className={`flex items-center justify-between px-4 py-2 border-t shrink-0 ${
+                  darkMode === 'dark' ? 'bg-stone-900/60 border-stone-850' : 'bg-stone-100/60 border-stone-200'
+                }`}>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-500/40 flex items-center justify-center font-black text-xs text-blue-400">
+                      {me.username.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-black text-xs truncate">{me.username}</span>
+                        <span className="text-[10px] text-slate-400 font-bold">({me.rating})</span>
+                      </div>
+                      <div className="text-[9px] text-slate-400 font-bold">
+                        {selectedUserGame.userColor === 'white' ? '⚪ 백 (White)' : '⚫ 흑 (Black)'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`px-2.5 py-1 rounded-xl text-xs font-mono font-black border ${
+                    darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-slate-200' : 'bg-white border-stone-200 text-slate-800'
+                  }`}>
+                    {selectedUserGame.timeControl || '10:00'}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Move History Ribbon */}
+            <div className={`px-4 py-1.5 border-t border-b text-xs flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0 ${
+              darkMode === 'dark' ? 'bg-stone-950 border-stone-850 text-slate-400' : 'bg-stone-50 border-stone-200 text-slate-600'
+            }`}>
+              <span className="text-[10px] font-black uppercase text-slate-500 shrink-0">기보:</span>
+              {userGameMoves.map((m, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleUserGameGoToMove(idx)}
+                  className={`px-1.5 py-0.5 rounded text-xs font-mono font-bold shrink-0 cursor-pointer ${
+                    userGameMoveIndex === idx 
+                      ? 'bg-blue-600 text-white' 
+                      : (darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-300' : 'hover:bg-stone-200 text-slate-800')
+                  }`}
+                >
+                  {idx % 2 === 0 ? `${Math.floor(idx/2)+1}. ` : ''}{m}
+                </button>
+              ))}
+            </div>
+
+            {/* Bottom 4-Button Toolbar with Giant Green Star Review Button (Screenshot 1) */}
+            <div className={`h-16 border-t flex items-center justify-around px-4 shrink-0 shadow-lg ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-slate-400' : 'bg-white border-stone-200 text-slate-500'
+            }`}>
+              {/* 1. Options */}
+              <button 
+                onClick={() => setView('HISTORY')}
+                className="flex flex-col items-center justify-center h-full flex-1 cursor-pointer hover:text-white transition-colors"
+              >
+                <Menu size={20} />
+                <span className="text-[9px] font-bold mt-0.5">{language === 'ko' ? '목록' : 'History'}</span>
+              </button>
+
+              {/* 2. Previous Move */}
+              <button 
+                onClick={() => handleUserGameGoToMove(Math.max(-1, userGameMoveIndex - 1))}
+                disabled={userGameMoveIndex < 0}
+                className="flex flex-col items-center justify-center h-full flex-1 cursor-pointer disabled:opacity-30 hover:text-white transition-colors"
+              >
+                <ChevronLeft size={22} />
+                <span className="text-[9px] font-bold mt-0.5">{language === 'ko' ? '뒤로' : 'Back'}</span>
+              </button>
+
+              {/* 3. Big Green Star Review Button (Screenshot 1) */}
+              <div className="flex-1 flex justify-center">
+                <button 
+                  onClick={startReviewFromGameView}
+                  className="w-14 h-14 rounded-2xl bg-lime-600 hover:bg-lime-500 text-white flex flex-col items-center justify-center shadow-lg shadow-lime-900/30 cursor-pointer active:scale-95 transition-all -translate-y-2 border-2 border-lime-400/40"
+                  title="게임 리뷰 시작"
+                >
+                  <Star size={24} fill="currentColor" />
+                </button>
+              </div>
+
+              {/* 4. Next Move */}
+              <button 
+                onClick={() => handleUserGameGoToMove(Math.min(userGameMoves.length - 1, userGameMoveIndex + 1))}
+                disabled={userGameMoveIndex >= userGameMoves.length - 1}
+                className="flex flex-col items-center justify-center h-full flex-1 cursor-pointer disabled:opacity-30 hover:text-white transition-colors"
+              >
+                <ChevronRight size={22} />
+                <span className="text-[9px] font-bold mt-0.5">{language === 'ko' ? '앞으로' : 'Next'}</span>
+              </button>
+
+              {/* 5. Analyze Board */}
+              <button 
+                onClick={() => {
+                  loadPgnToAnalyze(selectedUserGame.pgn);
+                  setActiveTab('analyze');
+                }}
+                className="flex flex-col items-center justify-center h-full flex-1 cursor-pointer hover:text-white transition-colors"
+              >
+                <GitBranch size={20} />
+                <span className="text-[9px] font-bold mt-0.5">{language === 'ko' ? '분석' : 'Analyze'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'home' && renderHomeTab()}
+
+        {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'more' && renderMoreTab()}
+
+        {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'analyze' && renderAnalyzeTab()}
+
+        {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'chessle' && !chesslePuzzle && (
           <div className={`flex-1 flex flex-col p-5 overflow-y-auto no-scrollbar justify-between ${
             darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
           }`}>
@@ -5123,7 +5820,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* VIEW: SUMMARY */}
+        {/* VIEW: SUMMARY (Review Summary - Matching Screenshot 3) */}
         {view === 'SUMMARY' && activeTab === 'review' && analysis && (
           <div className={`flex-1 flex flex-col overflow-y-auto no-scrollbar ${
             darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
@@ -5132,34 +5829,45 @@ export default function Home() {
               darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
             }`}>
               <button 
-                onClick={() => setView('INPUT')} 
+                onClick={() => setView(selectedUserGame ? 'GAME_VIEW' : 'INPUT')} 
                 className={`p-2 rounded-full transition-colors cursor-pointer ${
                   darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
                 }`}
               >
                 <ChevronLeft size={22} />
               </button>
-              <div className="flex items-center gap-1.5">
-                <SpeerLogo className={`w-5 h-5 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
-                <span className="font-black text-base tracking-tight">speerchess</span>
-              </div>
-              <div className="w-10"></div>
+              <h2 className="font-black text-base">
+                {language === 'ko' ? '게임 리뷰' : 'Game Review'}
+              </h2>
+              <button 
+                onClick={() => setIsShareModalOpen(true)}
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  darkMode === 'dark' ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-650'
+                }`}
+                title="공유"
+              >
+                <Share2 size={18} />
+              </button>
             </header>
 
             <main className="p-4 space-y-4 flex-1">
-              <div className={`rounded-2xl shadow-sm border p-5 space-y-1 ${
-                darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
-              }`}>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">경기 결과</span>
-                <h2 className="text-2xl font-black">{getGameResult(pgn, language)}</h2>
+              {/* Coach Speech Bubble (Screenshot 3) */}
+              <div className="flex items-start gap-3 px-1">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-800 to-amber-600 border-2 border-white/70 shadow-md flex items-center justify-center text-2xl shrink-0">
+                  👨🏾‍🏫
+                </div>
+                <div className={`flex-1 p-3.5 rounded-2xl shadow-md border text-xs font-semibold leading-relaxed relative ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-slate-100' : 'bg-white border-stone-200 text-slate-800'
+                }`}>
+                  {coachComment}
+                </div>
               </div>
 
-              {/* Graph Card */}
-              <div className={`rounded-2xl shadow-sm border p-4 h-56 flex flex-col justify-between ${
+              {/* Evaluation Flow AreaChart (Screenshot 3) */}
+              <div className={`rounded-2xl shadow-sm border p-4 h-48 flex flex-col justify-between ${
                 darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
               }`}>
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider">평가 그래프 (Speer Flow)</div>
-                <div className="flex-1 w-full h-full min-h-[140px]">
+                <div className="flex-1 w-full h-full min-h-[120px]">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <AreaChart 
                       data={analysis.evaluationHistory.map((evalCp, index) => ({
@@ -5181,172 +5889,95 @@ export default function Home() {
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
-                <div className={`flex justify-between items-center text-[10px] text-slate-400 pt-1 border-t mt-1 font-bold ${
-                  darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
-                }`}>
-                  <span>백 유리 (+)</span>
-                  <span>균형 (0.0)</span>
-                  <span>흑 유리 (-)</span>
-                </div>
               </div>
 
-              {/* Accuracy Card */}
-              <div className={`rounded-2xl shadow-sm border p-5 space-y-4 ${
-                darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
-              }`}>
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider">정확도 분석 (Accuracy)</div>
-                <div className="space-y-3">
+              {/* Big Dual Accuracy Cards (Screenshot 3) */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3 text-center">
                   <div>
-                    <div className="flex justify-between text-xs font-bold mb-1">
-                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500"></span> 백 (White)</span>
-                      <span className="font-extrabold text-blue-500">{analysis.whiteAccuracy}%</span>
+                    <div className="text-xs font-black truncate px-1 mb-1">
+                      {selectedUserGame ? selectedUserGame.white.username : 'White'}
                     </div>
-                    <div className={`h-2 w-full rounded-full overflow-hidden ${darkMode === 'dark' ? 'bg-stone-800' : 'bg-slate-100'}`}>
-                      <div className="h-full bg-blue-500 rounded-full transition-all duration-1000" style={{ width: `${analysis.whiteAccuracy}%` }} />
+                    <div className={`p-4 rounded-2xl border flex flex-col items-center justify-center shadow-sm ${
+                      darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+                    }`}>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">정확도</span>
+                      <span className="text-3xl font-black text-slate-100">{analysis.whiteAccuracy}</span>
                     </div>
                   </div>
+
                   <div>
-                    <div className="flex justify-between text-xs font-bold mb-1">
-                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-400"></span> 흑 (Black)</span>
-                      <span className="font-extrabold text-slate-400">{analysis.blackAccuracy}%</span>
+                    <div className="text-xs font-black truncate px-1 mb-1">
+                      {selectedUserGame ? selectedUserGame.black.username : 'Black'}
                     </div>
-                    <div className={`h-2 w-full rounded-full overflow-hidden ${darkMode === 'dark' ? 'bg-stone-800' : 'bg-slate-100'}`}>
-                      <div className="h-full bg-slate-400 rounded-full transition-all duration-1000" style={{ width: `${analysis.blackAccuracy}%` }} />
+                    <div className={`p-4 rounded-2xl border flex flex-col items-center justify-center shadow-sm ${
+                      darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+                    }`}>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">정확도</span>
+                      <span className="text-3xl font-black text-slate-100">{analysis.blackAccuracy}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Performance Card */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className={`p-4 rounded-2xl shadow-sm border text-center ${
-                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
-                }`}>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">백 퍼포먼스</div>
-                  <div className="text-xl font-black mt-1">{analysis.whitePerformance} <span className="text-xs font-normal text-slate-500">Elo</span></div>
-                </div>
-                <div className={`p-4 rounded-2xl shadow-sm border text-center ${
-                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
-                }`}>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">흑 퍼포먼스</div>
-                  <div className="text-xl font-black mt-1">{analysis.blackPerformance} <span className="text-xs font-normal text-slate-500">Elo</span></div>
-                </div>
-              </div>
-
-              {/* Classification Summary Card */}
-              <div className={`rounded-2xl shadow-sm border p-5 space-y-4 ${
+              {/* Classification Summary Table (Screenshot 3) */}
+              <div className={`rounded-2xl shadow-sm border p-4 space-y-3 ${
                 darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
               }`}>
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider">수 분류 통계 (Move Stats)</div>
-                <div className={`grid grid-cols-3 text-center border-b pb-2 text-[10px] font-black text-slate-400 ${
-                  darkMode === 'dark' ? 'border-stone-800' : 'border-stone-100'
-                }`}>
-                  <div className="text-left">분류</div>
-                  <div>백</div>
-                  <div>흑</div>
-                </div>
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {[
-                    { label: '탁월함 (Brilliant)', key: 'Brilliant', symbol: '!!', color: 'text-cyan-500', badgeDark: 'bg-cyan-950 text-cyan-400 border border-cyan-800/40', badgeLight: 'bg-cyan-100 text-cyan-700' },
-                    { label: '훌륭한 수 (Great)', key: 'Great', symbol: '!', color: 'text-sky-500', badgeDark: 'bg-sky-950 text-sky-400 border border-sky-800/40', badgeLight: 'bg-sky-100 text-sky-700' },
-                    { label: '최고의 수 (Best)', key: 'Best', symbol: '★', color: 'text-green-500', badgeDark: 'bg-green-950 text-green-400 border border-green-800/40', badgeLight: 'bg-green-100 text-green-700' },
-                    { label: '우수함 (Excellent)', key: 'Excellent', symbol: '●', color: 'text-emerald-500', badgeDark: 'bg-emerald-950 text-emerald-400 border border-emerald-800/40', badgeLight: 'bg-emerald-100 text-emerald-700' },
-                    { label: '좋음 (Good)', key: 'Good', symbol: '✓', color: darkMode === 'dark' ? 'text-slate-300' : 'text-slate-700', badgeDark: 'bg-stone-800 text-slate-300', badgeLight: 'bg-slate-100 text-slate-600' },
-                    { label: '북 오프닝 (Book)', key: 'Book', symbol: '◆', color: 'text-amber-500', badgeDark: 'bg-amber-950 text-amber-400 border border-amber-800/40', badgeLight: 'bg-amber-100 text-amber-800' },
-                    { label: '부정확함 (Inaccuracy)', key: 'Inaccuracy', symbol: '!?', color: 'text-yellow-500 font-bold', badgeDark: 'bg-yellow-950 text-yellow-400 border border-yellow-800/40', badgeLight: 'bg-yellow-100 text-yellow-700' },
-                    { label: '실수 (Mistake)', key: 'Mistake', symbol: '?', color: 'text-orange-500 font-bold', badgeDark: 'bg-orange-950 text-orange-400 border border-orange-800/40', badgeLight: 'bg-orange-100 text-orange-700' },
-                    { label: '블런더 (Blunder)', key: 'Blunder', symbol: '??', color: 'text-red-500 font-bold', badgeDark: 'bg-red-950 text-red-400 border border-red-800/40', badgeLight: 'bg-red-100 text-red-700' },
+                    { label: '탁월합니다', key: 'Brilliant', symbol: '!!', color: 'text-cyan-400' },
+                    { label: '매우 좋아요', key: 'Great', symbol: '!', color: 'text-sky-400' },
+                    { label: '최고', key: 'Best', symbol: '★', color: 'text-green-500' },
+                    { label: '우수합니다', key: 'Excellent', symbol: '👍', color: 'text-emerald-500' },
+                    { label: '좋습니다', key: 'Good', symbol: '✓', color: 'text-slate-400' },
+                    { label: '이론', key: 'Book', symbol: '📖', color: 'text-amber-500' },
+                    { label: '부정확함', key: 'Inaccuracy', symbol: '!?', color: 'text-yellow-500 font-bold' },
+                    { label: '실수', key: 'Mistake', symbol: '?', color: 'text-orange-500 font-bold' },
+                    { label: '블런더', key: 'Blunder', symbol: '??', color: 'text-red-500 font-bold' },
                   ].map((stat) => (
-                    <div key={stat.key} className="grid grid-cols-3 text-center items-center text-xs">
-                      <div className={`flex items-center gap-2 text-left font-medium ${darkMode === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
-                        <span className={`w-5 text-center text-[10px] font-black px-1 py-0.5 rounded ${
-                          darkMode === 'dark' ? stat.badgeDark : stat.badgeLight
-                        }`}>
-                          {stat.symbol}
-                        </span>
-                        <span>{stat.label}</span>
+                    <div key={stat.key} className="grid grid-cols-3 text-center items-center text-xs py-0.5">
+                      <div className="font-black text-left">{analysis.classificationTally.white[stat.key]}</div>
+                      <div className="flex items-center justify-center gap-1.5 font-bold">
+                        <span className={`text-[10px] font-black ${stat.color}`}>{stat.symbol}</span>
+                        <span className={darkMode === 'dark' ? 'text-slate-300' : 'text-slate-700'}>{stat.label}</span>
                       </div>
-                      <div className={`font-semibold ${stat.color}`}>{analysis.classificationTally.white[stat.key]}</div>
-                      <div className={`font-semibold ${stat.color}`}>{analysis.classificationTally.black[stat.key]}</div>
+                      <div className="font-black text-right">{analysis.classificationTally.black[stat.key]}</div>
                     </div>
                   ))}
                 </div>
               </div>
             </main>
 
+            {/* Prominent Green "리뷰 시작" Button (Screenshot 3) */}
             <div className={`p-4 border-t space-y-2 shrink-0 ${
               darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
             }`}>
               <button 
-                onClick={exportReviewToAnalyze}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer"
-              >
-                <GitBranch size={18} /> {language === 'ko' ? '자유 분석판으로 내보내기' : 'Export to Analyze Board'}
-              </button>
-              
-              <button 
                 onClick={startReview}
-                className={`w-full font-bold py-3.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 text-sm active:scale-95 cursor-pointer ${
-                  darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
-                }`}
+                className="w-full bg-lime-600 hover:bg-lime-500 text-white font-black py-4 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 text-base active:scale-98 cursor-pointer"
               >
-                첫 수부터 복기 시작 <ChevronRight size={18} />
+                {language === 'ko' ? '리뷰 시작' : 'Start Review'}
               </button>
               
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button 
-                  onClick={handleDownloadGif} 
-                  disabled={isExportingGif}
-                  className={`disabled:opacity-50 font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer ${
-                    darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
+                  onClick={exportReviewToAnalyze}
+                  className={`font-bold py-3 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1.5 text-xs active:scale-95 cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-stone-100 hover:bg-stone-200 border-stone-250 text-slate-800'
                   }`}
                 >
-                  {isExportingGif ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      생성 중...
-                    </>
-                  ) : (
-                    <>
-                      <Download size={14} />
-                      GIF 내보내기
-                    </>
-                  )}
+                  <GitBranch size={15} /> {language === 'ko' ? '자유 분석판' : 'Analyze'}
                 </button>
                 <button 
-                  onClick={handleCopyPgn}
-                  className={`font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border shadow-sm text-xs active:scale-95 cursor-pointer ${
-                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 text-stone-200 border-stone-750' : 'bg-white hover:bg-stone-50 text-slate-800 border-stone-300'
+                  onClick={() => setIsShareModalOpen(true)}
+                  className={`font-bold py-3 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1.5 text-xs active:scale-95 cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-stone-100 hover:bg-stone-200 border-stone-250 text-slate-800'
                   }`}
                 >
-                  <Layers size={14} />
-                  PGN 복사하기
+                  <Share2 size={15} /> {language === 'ko' ? '게임 공유하기' : 'Share'}
                 </button>
               </div>
-              <button 
-                onClick={handleShareGame}
-                disabled={isSharing}
-                className={`w-full disabled:opacity-50 font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 cursor-pointer ${
-                  darkMode === 'dark' ? 'bg-stone-800 hover:bg-stone-750 text-white' : 'bg-slate-800 hover:bg-slate-750 text-white'
-                }`}
-              >
-                {isSharing ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    공유 링크 생성 중...
-                  </>
-                ) : sharedHashid ? (
-                  <>
-                    <CheckCircle2 size={14} className="text-green-400" />
-                    링크 복사 완료 (코드: {sharedHashid})
-                  </>
-                ) : (
-                  <>
-                    <Globe size={14} />
-                    분석 링크 공유
-                  </>
-                )}
-              </button>
             </div>
           </div>
         )}
@@ -5973,10 +6604,40 @@ export default function Home() {
           }`}>
             <div className="p-5 space-y-6 pt-6 flex-1 flex flex-col max-w-sm mx-auto w-full">
               {/* Header Branding */}
-              <div className="text-center space-y-1.5 mb-2">
+              <div className="text-center space-y-1.5 mb-1">
                 <SpeerLogo className={`w-12 h-12 mx-auto ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
                 <h2 className="text-2xl font-black tracking-tight">{language === 'ko' ? '기보 리뷰 및 분석' : 'Game Review'}</h2>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{language === 'ko' ? 'Lichess 링크 또는 PGN 기보 분석' : 'Analyze Lichess URL or PGN moves'}</p>
+              </div>
+
+              {/* Match History Quick Banner Button (Screenshot 5 access) */}
+              <div 
+                onClick={() => setView('HISTORY')}
+                className={`p-3.5 rounded-2xl border flex items-center justify-between shadow-sm hover:shadow-md transition-all active:scale-98 cursor-pointer ${
+                  darkMode === 'dark' 
+                    ? 'bg-gradient-to-r from-stone-900 to-stone-850 border-stone-800 text-white' 
+                    : 'bg-gradient-to-r from-blue-50/80 to-white border-blue-200/60 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-black text-base shadow-sm">
+                    ⚡
+                  </div>
+                  <div>
+                    <div className="font-black text-xs flex items-center gap-1.5">
+                      <span>{language === 'ko' ? '내 경기 기록 (Match History)' : 'My Match History'}</span>
+                      {accounts.lichess || accounts.chesscom ? (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-green-500/20 text-green-500">
+                          ● {accounts.lichess || accounts.chesscom}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className={`text-[10px] font-bold ${darkMode === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {language === 'ko' ? 'Lichess / Chess.com 경기 목록 불러오기' : 'View Lichess & Chess.com matches'}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight size={18} className="text-slate-400" />
               </div>
 
               {/* Input Area Card */}
@@ -7312,6 +7973,171 @@ export default function Home() {
                   className="bg-slate-800 hover:bg-slate-750 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
                 >
                   {language === 'ko' ? '닫기' : 'Close'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ACCOUNT MANAGEMENT MODAL */}
+        {isAccountModalOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setIsAccountModalOpen(false)}>
+            <div className={`rounded-3xl max-w-sm w-full shadow-2xl p-5 border space-y-4 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-100 text-slate-800'
+            }`} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-2 border-b border-stone-750">
+                <h3 className="font-black text-sm flex items-center gap-1.5">
+                  <UserPlus size={16} className="text-blue-500" />
+                  {language === 'ko' ? '체스 계정 연동 관리' : 'Manage Connected Accounts'}
+                </h3>
+                <button onClick={() => setIsAccountModalOpen(false)} className="p-1 rounded-full text-slate-400 hover:text-white cursor-pointer">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-xs">
+                {/* Lichess Account */}
+                <div className={`p-3.5 rounded-2xl border space-y-2 ${
+                  darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-stone-50 border-stone-200'
+                }`}>
+                  <div className="flex items-center justify-between font-black">
+                    <span className="flex items-center gap-1 text-blue-400">⚡ Lichess</span>
+                    {accounts.lichess && (
+                      <button 
+                        onClick={() => handleDisconnectAccount('lichess')}
+                        className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer"
+                      >
+                        연동 해제
+                      </button>
+                    )}
+                  </div>
+                  {accounts.lichess ? (
+                    <div className="text-xs font-bold text-slate-300">
+                      연동된 계정: <span className="text-blue-400 font-extrabold">{accounts.lichess}</span>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Lichess 닉네임..."
+                        value={inputLichessUser}
+                        onChange={(e) => setInputLichessUser(e.target.value)}
+                        className={`flex-1 p-2 rounded-xl border text-xs font-bold ${
+                          darkMode === 'dark' ? 'bg-stone-900 border-stone-750 text-white' : 'bg-white border-stone-200 text-slate-800'
+                        }`}
+                      />
+                      <button 
+                        onClick={() => handleSaveAccount('lichess', inputLichessUser)}
+                        disabled={isConnectingAccount}
+                        className="px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95"
+                      >
+                        연동
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Chess.com Account */}
+                <div className={`p-3.5 rounded-2xl border space-y-2 ${
+                  darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-stone-50 border-stone-200'
+                }`}>
+                  <div className="flex items-center justify-between font-black">
+                    <span className="flex items-center gap-1 text-emerald-400">♟️ Chess.com</span>
+                    {accounts.chesscom && (
+                      <button 
+                        onClick={() => handleDisconnectAccount('chesscom')}
+                        className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer"
+                      >
+                        연동 해제
+                      </button>
+                    )}
+                  </div>
+                  {accounts.chesscom ? (
+                    <div className="text-xs font-bold text-slate-300">
+                      연동된 계정: <span className="text-emerald-400 font-extrabold">{accounts.chesscom}</span>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Chess.com 닉네임..."
+                        value={inputChessComUser}
+                        onChange={(e) => setInputChessComUser(e.target.value)}
+                        className={`flex-1 p-2 rounded-xl border text-xs font-bold ${
+                          darkMode === 'dark' ? 'bg-stone-900 border-stone-750 text-white' : 'bg-white border-stone-200 text-slate-800'
+                        }`}
+                      />
+                      <button 
+                        onClick={() => handleSaveAccount('chesscom', inputChessComUser)}
+                        disabled={isConnectingAccount}
+                        className="px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95"
+                      >
+                        연동
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setIsAccountModalOpen(false)}
+                className="w-full py-2.5 bg-stone-800 hover:bg-stone-750 text-white font-bold rounded-xl text-xs cursor-pointer active:scale-95 transition-all"
+              >
+                {language === 'ko' ? '닫기' : 'Close'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* GAME SHARING MODAL */}
+        {isShareModalOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setIsShareModalOpen(false)}>
+            <div className={`rounded-3xl max-w-sm w-full shadow-2xl p-5 border space-y-4 ${
+              darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-100 text-slate-800'
+            }`} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-2 border-b border-stone-750">
+                <h3 className="font-black text-sm flex items-center gap-1.5">
+                  <Share2 size={16} className="text-blue-500" />
+                  {language === 'ko' ? '게임 공유하기' : 'Share Game'}
+                </h3>
+                <button onClick={() => setIsShareModalOpen(false)} className="p-1 rounded-full text-slate-400 hover:text-white cursor-pointer">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <button 
+                  onClick={async () => {
+                    await handleShareGame();
+                  }}
+                  disabled={isSharing}
+                  className="w-full p-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all active:scale-95"
+                >
+                  {isSharing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> 링크 생성 중...
+                    </>
+                  ) : sharedHashid ? (
+                    <>
+                      <CheckCircle2 size={16} className="text-green-300" /> 링크 복사 완료!
+                    </>
+                  ) : (
+                    <>
+                      <Globe size={16} /> 분석 링크 복사하기
+                    </>
+                  )}
+                </button>
+
+                <button 
+                  onClick={() => {
+                    handleCopyPgn();
+                    setIsShareModalOpen(false);
+                  }}
+                  className={`w-full p-3 rounded-2xl border font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-800 border-stone-700 text-slate-200 hover:bg-stone-750' : 'bg-stone-50 border-stone-200 text-slate-700 hover:bg-stone-100'
+                  }`}
+                >
+                  <Layers size={16} /> PGN 기보 텍스트 복사
                 </button>
               </div>
             </div>
