@@ -1,9 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getUser } from '../../../lib/db';
 
 export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
   try {
+    const sessionUserId = request.cookies.get('speerchess_session')?.value;
+    let userToken = process.env.LICHESS_TOKEN || '';
+
+    // Check if user is logged in with Lichess
+    if (sessionUserId) {
+      const user = await getUser(sessionUserId);
+      if (user?.access_token) {
+        userToken = user.access_token;
+      }
+    }
+
+    // Require Lichess login for opening book explorer
+    if (!sessionUserId && !process.env.LICHESS_TOKEN) {
+      return NextResponse.json({
+        error: 'LICHESS_LOGIN_REQUIRED',
+        message: '오프닝 북 탐색기는 Lichess 계정으로 로그인한 사용자만 이용하실 수 있습니다.'
+      }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const db = searchParams.get('db') || 'lichess';
     
@@ -21,9 +41,8 @@ export async function GET(request: NextRequest) {
       'Accept': 'application/json'
     };
 
-    // Inject Lichess token from Cloudflare environment variable if configured
-    if (process.env.LICHESS_TOKEN) {
-      headers['Authorization'] = `Bearer ${process.env.LICHESS_TOKEN}`;
+    if (userToken) {
+      headers['Authorization'] = `Bearer ${userToken}`;
     }
 
     const res = await fetch(targetUrl, { headers });
@@ -35,7 +54,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data, {
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=600'
+        'Cache-Control': 'public, max-age=300'
       }
     });
   } catch (error: any) {

@@ -10,6 +10,7 @@ import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { PRESET_GAMES } from '../lib/preset_games';
 import { UserGameItem } from './api/user-games/route';
+import { LinkedAccountRecord } from '../lib/db';
 
 type ViewState = 'INPUT' | 'LOADING' | 'SUMMARY' | 'REVIEW' | 'EXPLORE' | 'BRILLIANT' | 'BLUNDER' | 'CHESSLE' | 'HISTORY' | 'GAME_VIEW';
 type ReviewTabState = 'MOVES' | 'ENGINE'; // MOVES: 감상모드, ENGINE: 분석모드
@@ -370,9 +371,10 @@ export default function Home() {
       .catch((err) => console.error('Error fetching hyperlinks:', err));
   }, []);
 
-  // Connected Accounts & Match History State
-  const [accounts, setAccounts] = useState<{ lichess?: string; chesscom?: string }>({});
-  const [activeAccountPlatform, setActiveAccountPlatform] = useState<'lichess' | 'chesscom'>('lichess');
+  // Authenticated User & Linked Accounts State (Lichess OAuth + D1)
+  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; avatar_url?: string } | null>(null);
+  const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccountRecord[]>([]);
+  const [selectedAccountFilter, setSelectedAccountFilter] = useState<string>('ALL');
   const [userGames, setUserGames] = useState<UserGameItem[]>([]);
   const [loadingUserGames, setLoadingUserGames] = useState<boolean>(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
@@ -394,42 +396,78 @@ export default function Home() {
   // Coach Commentary & Speech Bubble State
   const [coachComment, setCoachComment] = useState<string>(COACH_TIPS[0]);
 
-  // Load saved accounts and reviewed games from LocalStorage
-  useEffect(() => {
+  // Check authentication status and load linked accounts from D1 Database on mount
+  const checkAuth = async () => {
     try {
-      const savedAccounts = localStorage.getItem('speerchess_accounts');
-      if (savedAccounts) {
-        const parsed = JSON.parse(savedAccounts);
-        setAccounts(parsed);
-        if (parsed.lichess) {
-          setActiveAccountPlatform('lichess');
-          fetchUserGames('lichess', parsed.lichess);
-        } else if (parsed.chesscom) {
-          setActiveAccountPlatform('chesscom');
-          fetchUserGames('chesscom', parsed.chesscom);
-        }
-      }
-      
-      const savedReviewed = localStorage.getItem('speerchess_reviewed_games');
-      if (savedReviewed) {
-        setReviewedAccuracies(JSON.parse(savedReviewed));
-      }
-    } catch (e) {
-      console.error("Failed to load local storage accounts:", e);
-    }
-  }, []);
-
-  const fetchUserGames = async (platform: 'lichess' | 'chesscom', username: string) => {
-    if (!username?.trim()) return;
-    setLoadingUserGames(true);
-    try {
-      const res = await fetch(`/api/user-games?platform=${platform}&username=${encodeURIComponent(username.trim())}&max=30`);
+      const res = await fetch('/api/auth/me');
       if (res.ok) {
         const data = await res.json();
-        setUserGames(data.games || []);
-      } else {
-        setUserGames([]);
+        if (data.authenticated && data.user) {
+          setCurrentUser(data.user);
+          const accountsList = data.linkedAccounts || [];
+          setLinkedAccounts(accountsList);
+          fetchMultiAccountGames(accountsList, 'ALL');
+        } else {
+          setCurrentUser(null);
+          setLinkedAccounts([]);
+          // Fallback to local storage if any
+          const savedReviewed = localStorage.getItem('speerchess_reviewed_games');
+          if (savedReviewed) {
+            setReviewedAccuracies(JSON.parse(savedReviewed));
+          }
+        }
       }
+    } catch (e) {
+      console.error("Auth check failed:", e);
+    }
+  };
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const handleLoginWithLichess = () => {
+    window.location.href = '/api/auth/lichess';
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setCurrentUser(null);
+      setLinkedAccounts([]);
+      setUserGames([]);
+      setSelectedAccountFilter('ALL');
+    } catch (e) {
+      console.error("Logout failed:", e);
+    }
+  };
+
+  const fetchMultiAccountGames = async (accountsToFetch: LinkedAccountRecord[], filter: string = 'ALL') => {
+    if (!accountsToFetch || accountsToFetch.length === 0) {
+      setUserGames([]);
+      return;
+    }
+    setLoadingUserGames(true);
+    try {
+      let targets = accountsToFetch;
+      if (filter !== 'ALL') {
+        const [fPlatform, fUser] = filter.split(':');
+        targets = accountsToFetch.filter(a => a.platform === fPlatform && a.platform_username.toLowerCase() === fUser.toLowerCase());
+      }
+
+      const promises = targets.map(acc => 
+        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=30`)
+          .then(res => res.ok ? res.json() : { games: [] })
+          .then(d => (d.games || []) as UserGameItem[])
+          .catch(() => [] as UserGameItem[])
+      );
+
+      const results = await Promise.all(promises);
+      const flattened = results.flat();
+      
+      // Sort merged games by date in descending order (latest games first)
+      flattened.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setUserGames(flattened);
     } catch (e) {
       console.error("Failed to fetch games:", e);
       setUserGames([]);
@@ -438,23 +476,26 @@ export default function Home() {
     }
   };
 
-  const handleSaveAccount = async (platform: 'lichess' | 'chesscom', username: string) => {
+  const handleAddLinkedAccount = async (platform: 'lichess' | 'chesscom', username: string) => {
     const trimmed = username.trim();
     if (!trimmed) return;
     setIsConnectingAccount(true);
     try {
-      const res = await fetch(`/api/user-games?platform=${platform}&username=${encodeURIComponent(trimmed)}&max=10`);
-      if (!res.ok) {
-        alert(language === 'ko' ? '존재하지 않는 닉네임이거나 경기 데이터를 불러올 수 없습니다.' : 'User not found or unable to fetch games.');
-        return;
-      }
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, platformUsername: trimmed })
+      });
       const data = await res.json();
-      const updatedAccounts = { ...accounts, [platform]: trimmed };
-      setAccounts(updatedAccounts);
-      localStorage.setItem('speerchess_accounts', JSON.stringify(updatedAccounts));
-      setActiveAccountPlatform(platform);
-      setUserGames(data.games || []);
-      setIsAccountModalOpen(false);
+      if (res.ok && data.success) {
+        setLinkedAccounts(data.accounts);
+        fetchMultiAccountGames(data.accounts, selectedAccountFilter);
+        setIsAccountModalOpen(false);
+        setInputChessComUser('');
+        setInputLichessUser('');
+      } else {
+        alert(data.error || (language === 'ko' ? '계정 연동에 실패했습니다.' : 'Failed to connect account.'));
+      }
     } catch (e) {
       alert(language === 'ko' ? '계정 연동 중 오류가 발생했습니다.' : 'Failed to connect account.');
     } finally {
@@ -462,20 +503,21 @@ export default function Home() {
     }
   };
 
-  const handleDisconnectAccount = (platform: 'lichess' | 'chesscom') => {
-    const updated = { ...accounts };
-    delete updated[platform];
-    setAccounts(updated);
-    localStorage.setItem('speerchess_accounts', JSON.stringify(updated));
-    if (activeAccountPlatform === platform) {
-      const remaining = Object.keys(updated) as ('lichess' | 'chesscom')[];
-      if (remaining.length > 0) {
-        setActiveAccountPlatform(remaining[0]);
-        fetchUserGames(remaining[0], updated[remaining[0]]!);
+  const handleRemoveLinkedAccount = async (platform: string, username: string) => {
+    try {
+      const res = await fetch('/api/accounts', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, platformUsername: username })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setLinkedAccounts(data.accounts);
+        fetchMultiAccountGames(data.accounts, 'ALL');
       } else {
-        setUserGames([]);
+        alert(data.error || (language === 'ko' ? '계정 삭제 실패' : 'Failed to remove account.'));
       }
-    }
+    } catch (e) {}
   };
 
   // Open Game in Preview View (Matching Screenshot 1)
@@ -543,6 +585,24 @@ export default function Home() {
       setReviewedAccuracies(updatedAccs);
       try {
         localStorage.setItem('speerchess_reviewed_games', JSON.stringify(updatedAccs));
+      } catch (e) {}
+
+      // Auto-save analyzed game to Cloudflare D1 database in background
+      try {
+        const movesSequence = gameAnalysis.moves.map(m => m.san).join(' ');
+        fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pgn: selectedUserGame.pgn,
+            analysisJson: JSON.stringify(gameAnalysis),
+            movesSequence
+          })
+        }).then(res => res.json()).then(data => {
+          if (data.hashid) {
+            setSharedHashid(data.hashid);
+          }
+        }).catch(err => console.error("Auto-save to D1 failed:", err));
       } catch (e) {}
 
       // Set Coach Summary comment based on accuracy & result
@@ -3021,13 +3081,13 @@ export default function Home() {
               <div>
                 <div className="font-black text-xs flex items-center gap-1.5">
                   <span>{language === 'ko' ? '내 경기 기록 (Match History)' : 'My Match History'}</span>
-                  {accounts.lichess || accounts.chesscom ? (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-500">
-                      ● {accounts.lichess || accounts.chesscom}
+                  {currentUser ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 flex items-center gap-1">
+                      🛡️ {currentUser.username}
                     </span>
                   ) : (
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-500">
-                      {language === 'ko' ? '계정 연동' : 'Link Account'}
+                      {language === 'ko' ? 'Lichess 로그인' : 'Sign in'}
                     </span>
                   )}
                 </div>
@@ -5093,7 +5153,25 @@ export default function Home() {
           {/* Sub-tab body */}
           <div className="flex-1 p-3 overflow-y-auto no-scrollbar">
             {analyzeSubTab === 'BOOK' && (
-              isLoadingOpening ? (
+              !currentUser ? (
+                <div className="text-center py-6 px-4 space-y-3">
+                  <div className="w-12 h-12 mx-auto rounded-2xl bg-blue-600/15 border border-blue-500/30 flex items-center justify-center text-2xl text-blue-400">
+                    🔒
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="font-extrabold text-xs">오프닝 북 탐색기 잠금</h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                      오프닝 통계와 마스터 기보 데이터는 Lichess 로그인 후 무료로 이용하실 수 있습니다.
+                    </p>
+                  </div>
+                  <button 
+                    onClick={handleLoginWithLichess}
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 mx-auto"
+                  >
+                    <span>⚡ Lichess 계정으로 로그인</span>
+                  </button>
+                </div>
+              ) : isLoadingOpening ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
                 </div>
@@ -5371,175 +5449,199 @@ export default function Home() {
               >
                 <ChevronLeft size={22} />
               </button>
-              <h2 className="font-black text-base">
-                {language === 'ko' ? '경기 기록' : 'Match History'}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-black text-base">
+                  {language === 'ko' ? '경기 기록' : 'Match History'}
+                </h2>
+                {currentUser && (
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center gap-1">
+                    🛡️ {currentUser.username}
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-1.5">
-                <button 
-                  onClick={() => setIsAccountModalOpen(true)}
-                  className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                    darkMode === 'dark' ? 'bg-stone-800 border-stone-700 text-white hover:bg-stone-750' : 'bg-stone-100 border-stone-200 text-slate-700 hover:bg-stone-200'
-                  }`}
-                  title="계정 관리"
-                >
-                  <UserPlus size={15} />
-                </button>
-                <button 
-                  onClick={() => fetchUserGames(activeAccountPlatform, accounts[activeAccountPlatform] || '')}
-                  disabled={loadingUserGames || !accounts[activeAccountPlatform]}
-                  className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                    darkMode === 'dark' ? 'bg-stone-800 border-stone-700 text-white hover:bg-stone-750' : 'bg-stone-100 border-stone-200 text-slate-700 hover:bg-stone-200'
-                  }`}
-                  title="새로고침"
-                >
-                  <RefreshCw size={15} className={loadingUserGames ? 'animate-spin' : ''} />
-                </button>
+                {currentUser && (
+                  <>
+                    <button 
+                      onClick={() => setIsAccountModalOpen(true)}
+                      className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        darkMode === 'dark' ? 'bg-stone-800 border-stone-700 text-white hover:bg-stone-750' : 'bg-stone-100 border-stone-200 text-slate-700 hover:bg-stone-200'
+                      }`}
+                      title="계정 관리"
+                    >
+                      <UserPlus size={15} />
+                    </button>
+                    <button 
+                      onClick={() => fetchMultiAccountGames(linkedAccounts, selectedAccountFilter)}
+                      disabled={loadingUserGames || linkedAccounts.length === 0}
+                      className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        darkMode === 'dark' ? 'bg-stone-800 border-stone-700 text-white hover:bg-stone-750' : 'bg-stone-100 border-stone-200 text-slate-700 hover:bg-stone-200'
+                      }`}
+                      title="새로고침"
+                    >
+                      <RefreshCw size={15} className={loadingUserGames ? 'animate-spin' : ''} />
+                    </button>
+                  </>
+                )}
               </div>
             </header>
 
-            {/* Platform Selector Tabs */}
-            <div className={`flex border-b p-1 gap-1 shrink-0 ${
-              darkMode === 'dark' ? 'bg-stone-900/60 border-stone-850' : 'bg-stone-100/60 border-stone-200'
-            }`}>
-              <button 
-                onClick={() => {
-                  setActiveAccountPlatform('lichess');
-                  if (accounts.lichess) fetchUserGames('lichess', accounts.lichess);
-                }}
-                className={`flex-1 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                  activeAccountPlatform === 'lichess' 
-                    ? 'bg-blue-600 text-white shadow-sm' 
-                    : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')
-                }`}
-              >
-                <span>⚡ Lichess</span>
-                {accounts.lichess && <span className="text-[10px] opacity-80">({accounts.lichess})</span>}
-              </button>
-              <button 
-                onClick={() => {
-                  setActiveAccountPlatform('chesscom');
-                  if (accounts.chesscom) fetchUserGames('chesscom', accounts.chesscom);
-                }}
-                className={`flex-1 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                  activeAccountPlatform === 'chesscom' 
-                    ? 'bg-emerald-600 text-white shadow-sm' 
-                    : (darkMode === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')
-                }`}
-              >
-                <span>♟️ Chess.com</span>
-                {accounts.chesscom && <span className="text-[10px] opacity-80">({accounts.chesscom})</span>}
-              </button>
-            </div>
-
-            {/* Match History List Area */}
-            <div className="flex-1 overflow-y-auto p-3 no-scrollbar space-y-2">
-              {!accounts[activeAccountPlatform] ? (
-                <div className={`p-6 rounded-3xl border text-center space-y-4 my-8 ${
+            {!currentUser ? (
+              /* Require Lichess OAuth Login View */
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                <div className={`p-6 rounded-3xl border text-center space-y-4 max-w-sm w-full shadow-lg ${
                   darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
                 }`}>
-                  <div className="text-4xl">🔗</div>
-                  <div className="space-y-1">
-                    <h3 className="font-black text-sm">
-                      {activeAccountPlatform === 'lichess' ? 'Lichess 계정 연동' : 'Chess.com 계정 연동'}
+                  <div className="w-16 h-16 mx-auto rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-3xl text-blue-400">
+                    ⚡
+                  </div>
+                  <div className="space-y-1.5">
+                    <h3 className="font-black text-base">
+                      {language === 'ko' ? 'Lichess 계정으로 로그인' : 'Sign in with Lichess'}
                     </h3>
-                    <p className="text-xs text-slate-400 font-medium">
-                      닉네임을 입력하면 최근 전적을 자동으로 불러옵니다.
+                    <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                      {language === 'ko'
+                        ? 'Lichess 계정으로 로그인하면 본인 인증을 거쳐 최근 대국 목록과 오프닝 북 탐색기, 체스닷컴 부계정 연동을 한 번에 이용하실 수 있습니다.'
+                        : 'Sign in with Lichess to sync your matches, opening book, and linked Chess.com accounts.'}
                     </p>
                   </div>
-                  <div className="flex gap-2 max-w-xs mx-auto">
-                    <input 
-                      type="text"
-                      placeholder="닉네임 입력 (Username)..."
-                      value={activeAccountPlatform === 'lichess' ? inputLichessUser : inputChessComUser}
-                      onChange={(e) => activeAccountPlatform === 'lichess' ? setInputLichessUser(e.target.value) : setInputChessComUser(e.target.value)}
-                      className={`flex-1 p-2.5 rounded-xl border text-xs font-bold ${
-                        darkMode === 'dark' ? 'bg-stone-950 border-stone-800 text-white' : 'bg-stone-50 border-stone-200 text-slate-800'
-                      }`}
-                    />
-                    <button 
-                      onClick={() => handleSaveAccount(activeAccountPlatform, activeAccountPlatform === 'lichess' ? inputLichessUser : inputChessComUser)}
-                      disabled={isConnectingAccount}
-                      className="px-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs cursor-pointer active:scale-95 transition-all"
-                    >
-                      {isConnectingAccount ? '연결 중...' : '연동'}
-                    </button>
-                  </div>
+                  <button 
+                    onClick={handleLoginWithLichess}
+                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-2xl text-xs shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <span>⚡ Lichess 계정으로 시작하기</span>
+                  </button>
                 </div>
-              ) : loadingUserGames ? (
-                <div className="h-64 flex flex-col items-center justify-center gap-2">
-                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-                  <span className="text-xs font-bold text-slate-400">경기 목록을 불러오는 중...</span>
-                </div>
-              ) : userGames.length === 0 ? (
-                <div className="text-center py-16 text-slate-400 font-bold text-xs">
-                  최근 진행된 경기 기록이 없습니다.
-                </div>
-              ) : (
-                userGames.map((g) => {
-                  const opponent = g.userColor === 'white' ? g.black : g.white;
-                  const reviewed = reviewedAccuracies[g.id];
-                  
-                  return (
-                    <div 
-                      key={g.id}
-                      onClick={() => openUserGame(g)}
-                      className={`p-3 rounded-2xl border flex items-center justify-between shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-98 ${
-                        darkMode === 'dark' ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
-                      }`}
-                    >
-                      {/* Left: Mode Icon + Opponent Avatar & Name */}
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="text-lg shrink-0">
-                          {g.timeClass === 'bullet' ? '🚅' :
-                           g.timeClass === 'blitz' ? <span className="text-amber-400 font-black">⚡</span> :
-                           g.timeClass === 'rapid' ? <span className="text-emerald-500 font-black">⏱️</span> : '♟️'}
-                        </div>
-                        <div className="w-8 h-8 rounded-xl bg-stone-700/30 border border-stone-600/30 flex items-center justify-center font-black text-xs shrink-0">
-                          {opponent.username.slice(0, 1).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-extrabold text-xs truncate max-w-[120px]">{opponent.username}</span>
-                            <span className="text-[10px] text-slate-400 font-bold">({opponent.rating})</span>
-                          </div>
-                          <div className="text-[9px] text-slate-500 font-bold">
-                            {g.timeControl || g.timeClass} • {new Date(g.date).toLocaleDateString()}
-                          </div>
-                        </div>
-                      </div>
+              </div>
+            ) : (
+              <>
+                {/* Account Filter Bar (All vs Specific Linked Accounts) */}
+                <div className={`flex border-b p-1.5 gap-1.5 shrink-0 overflow-x-auto no-scrollbar ${
+                  darkMode === 'dark' ? 'bg-stone-900/60 border-stone-850' : 'bg-stone-100/60 border-stone-200'
+                }`}>
+                  <button 
+                    onClick={() => {
+                      setSelectedAccountFilter('ALL');
+                      fetchMultiAccountGames(linkedAccounts, 'ALL');
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+                      selectedAccountFilter === 'ALL'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : (darkMode === 'dark' ? 'bg-stone-800 text-slate-400 hover:text-slate-200' : 'bg-white text-slate-600 hover:text-slate-900')
+                    }`}
+                  >
+                    <span>🌐 전체 계정</span>
+                    <span className="text-[10px] opacity-80">({userGames.length})</span>
+                  </button>
 
-                      {/* Right: Result Badge + Review Button or Accuracy */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className={`w-5 h-5 rounded-md flex items-center justify-center font-black text-xs ${
-                          g.userResult === 'win' ? 'bg-emerald-600 text-white' :
-                          g.userResult === 'loss' ? 'bg-red-600 text-white' :
-                          'bg-stone-600 text-slate-200'
-                        }`}>
-                          {g.userResult === 'win' ? '+' : g.userResult === 'loss' ? '-' : '='}
-                        </span>
+                  {linkedAccounts.map(acc => {
+                    const filterKey = `${acc.platform}:${acc.platform_username}`;
+                    const isSelected = selectedAccountFilter === filterKey;
+                    return (
+                      <button 
+                        key={`${acc.platform}-${acc.platform_username}`}
+                        onClick={() => {
+                          setSelectedAccountFilter(filterKey);
+                          fetchMultiAccountGames(linkedAccounts, filterKey);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                          isSelected
+                            ? (acc.platform === 'lichess' ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white')
+                            : (darkMode === 'dark' ? 'bg-stone-800 text-slate-400 hover:text-slate-200' : 'bg-white text-slate-600 hover:text-slate-900')
+                        }`}
+                      >
+                        <span>{acc.platform === 'lichess' ? '⚡' : '♟️'}</span>
+                        <span>{acc.platform_username}</span>
+                        {acc.is_primary && <span className="text-[9px] opacity-70">🛡️</span>}
+                      </button>
+                    );
+                  })}
+                </div>
 
-                        {reviewed ? (
-                          <div className="px-2 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 font-black text-xs text-center min-w-[50px]">
-                            {reviewed.userAccuracy.toFixed(1)}%
-                          </div>
-                        ) : (
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openUserGame(g);
-                            }}
-                            className="w-8 h-8 rounded-xl bg-lime-600 hover:bg-lime-500 text-white flex items-center justify-center shadow-md cursor-pointer transition-all active:scale-90"
-                            title="리뷰 시작"
-                          >
-                            <Star size={16} fill="currentColor" />
-                          </button>
-                        )}
-                      </div>
+                {/* Match History List Area */}
+                <div className="flex-1 overflow-y-auto p-3 no-scrollbar space-y-2">
+                  {loadingUserGames ? (
+                    <div className="h-64 flex flex-col items-center justify-center gap-2">
+                      <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                      <span className="text-xs font-bold text-slate-400">경기 목록을 불러오는 중...</span>
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  ) : userGames.length === 0 ? (
+                    <div className="text-center py-16 text-slate-400 font-bold text-xs">
+                      최근 진행된 경기 기록이 없습니다.
+                    </div>
+                  ) : (
+                    userGames.map((g) => {
+                      const opponent = g.userColor === 'white' ? g.black : g.white;
+                      const reviewed = reviewedAccuracies[g.id];
+                      
+                      return (
+                        <div 
+                          key={g.id}
+                          onClick={() => openUserGame(g)}
+                          className={`p-3 rounded-2xl border flex items-center justify-between shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-98 ${
+                            darkMode === 'dark' ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+                          }`}
+                        >
+                          {/* Left: Mode Icon + Opponent Avatar & Name */}
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="text-lg shrink-0">
+                              {g.timeClass === 'bullet' ? '🚅' :
+                               g.timeClass === 'blitz' ? <span className="text-amber-400 font-black">⚡</span> :
+                               g.timeClass === 'rapid' ? <span className="text-emerald-500 font-black">⏱️</span> : '♟️'}
+                            </div>
+                            <div className="w-8 h-8 rounded-xl bg-stone-700/30 border border-stone-600/30 flex items-center justify-center font-black text-xs shrink-0">
+                              {opponent.username.slice(0, 1).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-extrabold text-xs truncate max-w-[120px]">{opponent.username}</span>
+                                <span className="text-[10px] text-slate-400 font-bold">({opponent.rating})</span>
+                                <span className={`text-[9px] font-bold px-1 rounded ${
+                                  g.platform === 'lichess' ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400'
+                                }`}>
+                                  {g.platform === 'lichess' ? 'Lichess' : 'Chess.com'}
+                                </span>
+                              </div>
+                              <div className="text-[9px] text-slate-500 font-bold">
+                                {g.timeControl || g.timeClass} • {new Date(g.date).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right: Result Badge + Review Button or Accuracy */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`w-5 h-5 rounded-md flex items-center justify-center font-black text-xs ${
+                              g.userResult === 'win' ? 'bg-emerald-600 text-white' :
+                              g.userResult === 'loss' ? 'bg-red-600 text-white' :
+                              'bg-stone-600 text-slate-200'
+                            }`}>
+                              {g.userResult === 'win' ? '+' : g.userResult === 'loss' ? '-' : '='}
+                            </span>
+
+                            {reviewed ? (
+                              <div className="px-2 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 font-black text-xs text-center min-w-[50px]">
+                                {reviewed.userAccuracy.toFixed(1)}%
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openUserGame(g);
+                                }}
+                                className="w-8 h-8 rounded-xl bg-lime-600 hover:bg-lime-500 text-white flex items-center justify-center shadow-md cursor-pointer transition-all active:scale-90"
+                                title="리뷰 시작"
+                              >
+                                <Star size={16} fill="currentColor" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -6626,9 +6728,9 @@ export default function Home() {
                   <div>
                     <div className="font-black text-xs flex items-center gap-1.5">
                       <span>{language === 'ko' ? '내 경기 기록 (Match History)' : 'My Match History'}</span>
-                      {accounts.lichess || accounts.chesscom ? (
-                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-green-500/20 text-green-500">
-                          ● {accounts.lichess || accounts.chesscom}
+                      {currentUser ? (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-blue-500/20 text-blue-400">
+                          ● {currentUser.username}
                         </span>
                       ) : null}
                     </div>
@@ -7979,7 +8081,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ACCOUNT MANAGEMENT MODAL */}
+        {/* ACCOUNT MANAGEMENT MODAL (D1 Database Synchronized) */}
         {isAccountModalOpen && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setIsAccountModalOpen(false)}>
             <div className={`rounded-3xl max-w-sm w-full shadow-2xl p-5 border space-y-4 ${
@@ -7988,79 +8090,79 @@ export default function Home() {
               <div className="flex items-center justify-between pb-2 border-b border-stone-750">
                 <h3 className="font-black text-sm flex items-center gap-1.5">
                   <UserPlus size={16} className="text-blue-500" />
-                  {language === 'ko' ? '체스 계정 연동 관리' : 'Manage Connected Accounts'}
+                  {language === 'ko' ? '체스 계정 및 연동 관리' : 'Manage Linked Accounts'}
                 </h3>
                 <button onClick={() => setIsAccountModalOpen(false)} className="p-1 rounded-full text-slate-400 hover:text-white cursor-pointer">
                   <X size={18} />
                 </button>
               </div>
 
-              <div className="space-y-4 text-xs">
-                {/* Lichess Account */}
-                <div className={`p-3.5 rounded-2xl border space-y-2 ${
-                  darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-stone-50 border-stone-200'
-                }`}>
-                  <div className="flex items-center justify-between font-black">
-                    <span className="flex items-center gap-1 text-blue-400">⚡ Lichess</span>
-                    {accounts.lichess && (
-                      <button 
-                        onClick={() => handleDisconnectAccount('lichess')}
-                        className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer"
-                      >
-                        연동 해제
-                      </button>
-                    )}
+              {currentUser ? (
+                <div className="space-y-4 text-xs">
+                  {/* Primary Verified Lichess Account */}
+                  <div className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                    darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-blue-50/60 border-blue-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 font-extrabold text-blue-400">
+                        ⚡ Lichess 인증 계정
+                      </span>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center gap-1">
+                        🛡️ 인증됨
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <div className="w-8 h-8 rounded-xl bg-blue-600/30 text-blue-300 font-black flex items-center justify-center text-sm border border-blue-500/40">
+                        {currentUser.username.slice(0, 1).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="font-black text-sm">{currentUser.username}</div>
+                        <div className="text-[10px] text-slate-400 font-medium">기본 로그인 프로필</div>
+                      </div>
+                    </div>
                   </div>
-                  {accounts.lichess ? (
-                    <div className="text-xs font-bold text-slate-300">
-                      연동된 계정: <span className="text-blue-400 font-extrabold">{accounts.lichess}</span>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        placeholder="Lichess 닉네임..."
-                        value={inputLichessUser}
-                        onChange={(e) => setInputLichessUser(e.target.value)}
-                        className={`flex-1 p-2 rounded-xl border text-xs font-bold ${
-                          darkMode === 'dark' ? 'bg-stone-900 border-stone-750 text-white' : 'bg-white border-stone-200 text-slate-800'
-                        }`}
-                      />
-                      <button 
-                        onClick={() => handleSaveAccount('lichess', inputLichessUser)}
-                        disabled={isConnectingAccount}
-                        className="px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95"
-                      >
-                        연동
-                      </button>
-                    </div>
-                  )}
-                </div>
 
-                {/* Chess.com Account */}
-                <div className={`p-3.5 rounded-2xl border space-y-2 ${
-                  darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-stone-50 border-stone-200'
-                }`}>
-                  <div className="flex items-center justify-between font-black">
-                    <span className="flex items-center gap-1 text-emerald-400">♟️ Chess.com</span>
-                    {accounts.chesscom && (
-                      <button 
-                        onClick={() => handleDisconnectAccount('chesscom')}
-                        className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer"
-                      >
-                        연동 해제
-                      </button>
+                  {/* Connected Sub-Accounts List (from D1 DB) */}
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                      {language === 'ko' ? '추가 연동된 계정 목록' : 'Linked Sub-Accounts'}
+                    </span>
+                    {linkedAccounts.filter(a => !a.is_primary).length === 0 ? (
+                      <div className="text-center py-2 text-[11px] text-slate-500 italic">
+                        연동된 추가 계정이 없습니다. 아래에서 체스닷컴 계정을 등록하세요.
+                      </div>
+                    ) : (
+                      linkedAccounts.filter(a => !a.is_primary).map(acc => (
+                        <div key={`${acc.platform}-${acc.platform_username}`} className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                          darkMode === 'dark' ? 'bg-stone-950 border-stone-800' : 'bg-stone-50 border-stone-200'
+                        }`}>
+                          <div className="flex items-center gap-2">
+                            <span>{acc.platform === 'lichess' ? '⚡' : '♟️'}</span>
+                            <span className="font-bold text-xs">{acc.platform_username}</span>
+                            <span className="text-[9px] text-slate-500 uppercase">({acc.platform})</span>
+                          </div>
+                          <button 
+                            onClick={() => handleRemoveLinkedAccount(acc.platform, acc.platform_username)}
+                            className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer px-2 py-1"
+                          >
+                            연동 해제
+                          </button>
+                        </div>
+                      ))
                     )}
                   </div>
-                  {accounts.chesscom ? (
-                    <div className="text-xs font-bold text-slate-300">
-                      연동된 계정: <span className="text-emerald-400 font-extrabold">{accounts.chesscom}</span>
-                    </div>
-                  ) : (
+
+                  {/* Add New Account Form (Chess.com or Sub-Lichess) */}
+                  <div className={`p-3 rounded-2xl border space-y-2.5 ${
+                    darkMode === 'dark' ? 'bg-stone-950/60 border-stone-800' : 'bg-stone-50 border-stone-200'
+                  }`}>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                      {language === 'ko' ? '+ 체스닷컴 / 부계정 추가 연동' : '+ Add Chess.com Account'}
+                    </span>
                     <div className="flex gap-2">
                       <input 
                         type="text" 
-                        placeholder="Chess.com 닉네임..."
+                        placeholder="체스닷컴 닉네임 입력..."
                         value={inputChessComUser}
                         onChange={(e) => setInputChessComUser(e.target.value)}
                         className={`flex-1 p-2 rounded-xl border text-xs font-bold ${
@@ -8068,23 +8170,51 @@ export default function Home() {
                         }`}
                       />
                       <button 
-                        onClick={() => handleSaveAccount('chesscom', inputChessComUser)}
-                        disabled={isConnectingAccount}
-                        className="px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95"
+                        onClick={() => handleAddLinkedAccount('chesscom', inputChessComUser)}
+                        disabled={isConnectingAccount || !inputChessComUser.trim()}
+                        className="px-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95 shrink-0"
                       >
-                        연동
+                        {isConnectingAccount ? '연동 중...' : '연동'}
                       </button>
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
 
-              <button 
-                onClick={() => setIsAccountModalOpen(false)}
-                className="w-full py-2.5 bg-stone-800 hover:bg-stone-750 text-white font-bold rounded-xl text-xs cursor-pointer active:scale-95 transition-all"
-              >
-                {language === 'ko' ? '닫기' : 'Close'}
-              </button>
+                  {/* Logout Action */}
+                  <div className="pt-2 border-t border-stone-800 flex justify-between items-center">
+                    <button 
+                      onClick={handleLogout}
+                      className="text-xs text-red-500 font-bold hover:underline cursor-pointer"
+                    >
+                      로그아웃 (Sign Out)
+                    </button>
+                    <button 
+                      onClick={() => setIsAccountModalOpen(false)}
+                      className="px-4 py-2 bg-stone-800 hover:bg-stone-750 text-white font-bold rounded-xl text-xs cursor-pointer active:scale-95 transition-all"
+                    >
+                      {language === 'ko' ? '닫기' : 'Close'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Prompt to login first */
+                <div className="text-center py-4 space-y-4">
+                  <div className="w-12 h-12 mx-auto rounded-2xl bg-blue-600/20 text-blue-400 flex items-center justify-center text-2xl font-black">
+                    ⚡
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="font-extrabold text-sm">Lichess 계정 로그인이 필요합니다</h4>
+                    <p className="text-xs text-slate-400">
+                      계정 연동 관리와 경기 기록 동기화는 Lichess 본인 인증 로그인 후 이용 가능합니다.
+                    </p>
+                  </div>
+                  <button 
+                    onClick={handleLoginWithLichess}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                  >
+                    ⚡ Lichess 계정으로 로그인하기
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
