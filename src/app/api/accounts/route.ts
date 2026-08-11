@@ -1,12 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUser, getLinkedAccounts, addLinkedAccount, removeLinkedAccount } from '../../../lib/db';
+import { getLinkedAccounts, addLinkedAccount, removeLinkedAccount } from '../../../lib/db';
 
 export const runtime = 'edge';
+
+function getSessionUserId(request: NextRequest): string | null {
+  const rawCookie = request.cookies.get('speerchess_session')?.value;
+  if (!rawCookie) return null;
+  try {
+    if (rawCookie.startsWith('{')) {
+      return JSON.parse(rawCookie).id;
+    } else {
+      return JSON.parse(decodeURIComponent(atob(rawCookie))).id;
+    }
+  } catch (e) {
+    return rawCookie;
+  }
+}
 
 // GET /api/accounts - List all linked accounts for current user
 export async function GET(request: NextRequest) {
   try {
-    const sessionUserId = request.cookies.get('speerchess_session')?.value;
+    const sessionUserId = getSessionUserId(request);
     if (!sessionUserId) {
       return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }
@@ -21,7 +35,7 @@ export async function GET(request: NextRequest) {
 // POST /api/accounts - Add linked account (e.g. Chess.com or secondary Lichess)
 export async function POST(request: NextRequest) {
   try {
-    const sessionUserId = request.cookies.get('speerchess_session')?.value;
+    const sessionUserId = getSessionUserId(request);
     if (!sessionUserId) {
       return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }
@@ -61,7 +75,7 @@ export async function POST(request: NextRequest) {
 // DELETE /api/accounts - Remove linked account
 export async function DELETE(request: NextRequest) {
   try {
-    const sessionUserId = request.cookies.get('speerchess_session')?.value;
+    const sessionUserId = getSessionUserId(request);
     if (!sessionUserId) {
       return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }

@@ -33,8 +33,11 @@ function base64UrlEncode(buffer: ArrayBuffer): string {
 
 export async function GET(request: NextRequest) {
   try {
-    const origin = new URL(request.url).origin;
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.host;
+    const proto = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https://') ? 'https' : 'http');
+    const origin = `${proto}://${host}`;
     const redirectUri = `${origin}/api/auth/lichess/callback`;
+    const isHttps = proto === 'https';
     
     // Generate PKCE code verifier and challenge
     const verifier = generateRandomString(64);
@@ -44,7 +47,6 @@ export async function GET(request: NextRequest) {
     const state = generateRandomString(32);
 
     // Build Lichess OAuth authorization URL
-    // Scope: 'preference:read' for reading user profile and preferences
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: 'speerchess',
@@ -57,21 +59,21 @@ export async function GET(request: NextRequest) {
 
     const lichessAuthUrl = `https://lichess.org/oauth?${params.toString()}`;
 
-    // Return redirect with PKCE verifier stored in a secure, HTTP-only cookie
+    // Return redirect with PKCE verifier stored in cookie
     const response = NextResponse.redirect(lichessAuthUrl);
     response.cookies.set('speerchess_pkce_verifier', verifier, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps,
       sameSite: 'lax',
-      maxAge: 60 * 10 // 10 minutes
+      maxAge: 60 * 15 // 15 minutes
     });
     response.cookies.set('speerchess_oauth_state', state, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps,
       sameSite: 'lax',
-      maxAge: 60 * 10
+      maxAge: 60 * 15
     });
 
     return response;

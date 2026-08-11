@@ -5,19 +5,33 @@ export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
   try {
-    const sessionUserId = request.cookies.get('speerchess_session')?.value;
+    const rawCookie = request.cookies.get('speerchess_session')?.value;
     let userToken = process.env.LICHESS_TOKEN || '';
+    let hasSession = false;
 
-    // Check if user is logged in with Lichess
-    if (sessionUserId) {
-      const user = await getUser(sessionUserId);
-      if (user?.access_token) {
-        userToken = user.access_token;
-      }
+    // Check if user is logged in with Lichess via session cookie
+    if (rawCookie) {
+      hasSession = true;
+      try {
+        let sessionData: any = null;
+        if (rawCookie.startsWith('{')) {
+          sessionData = JSON.parse(rawCookie);
+        } else {
+          sessionData = JSON.parse(decodeURIComponent(atob(rawCookie)));
+        }
+        if (sessionData?.access_token) {
+          userToken = sessionData.access_token;
+        } else if (sessionData?.id) {
+          const dbUser = await getUser(sessionData.id);
+          if (dbUser?.access_token) {
+            userToken = dbUser.access_token;
+          }
+        }
+      } catch (e) {}
     }
 
     // Require Lichess login for opening book explorer
-    if (!sessionUserId && !process.env.LICHESS_TOKEN) {
+    if (!hasSession && !process.env.LICHESS_TOKEN) {
       return NextResponse.json({
         error: 'LICHESS_LOGIN_REQUIRED',
         message: '오프닝 북 탐색기는 Lichess 계정으로 로그인한 사용자만 이용하실 수 있습니다.'

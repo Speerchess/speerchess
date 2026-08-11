@@ -4,7 +4,12 @@ import { upsertUser } from '../../../../../lib/db';
 export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.host;
+  const proto = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https://') ? 'https' : 'http');
+  const origin = `${proto}://${host}`;
+  const isHttps = proto === 'https';
+
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const error = searchParams.get('error');
@@ -17,6 +22,7 @@ export async function GET(request: NextRequest) {
   const savedState = request.cookies.get('speerchess_oauth_state')?.value;
 
   if (!verifier || (savedState && savedState !== state)) {
+    console.error("PKCE verifier or state missing/mismatched. verifier:", Boolean(verifier), "savedState:", savedState, "state:", state);
     return NextResponse.redirect(`${origin}/?auth_error=invalid_state`);
   }
 
@@ -40,8 +46,8 @@ export async function GET(request: NextRequest) {
 
     if (!tokenRes.ok) {
       const errText = await tokenRes.text();
-      console.error("Lichess token exchange failed:", errText);
-      return NextResponse.redirect(`${origin}/?auth_error=token_failed`);
+      console.error("Lichess token exchange failed:", tokenRes.status, errText);
+      return NextResponse.redirect(`${origin}/?auth_error=token_exchange_${tokenRes.status}`);
     }
 
     const tokenData = await tokenRes.json();
@@ -55,29 +61,45 @@ export async function GET(request: NextRequest) {
     });
 
     if (!userRes.ok) {
-      return NextResponse.redirect(`${origin}/?auth_error=profile_failed`);
+      console.error("Lichess account fetch failed:", userRes.status);
+      return NextResponse.redirect(`${origin}/?auth_error=profile_fetch_${userRes.status}`);
     }
 
     const userData = await userRes.json();
     const userId = userData.id;
     const username = userData.username || userId;
+    const avatarUrl = userData.profile?.avatar || null;
 
-    // 3. Upsert user in Cloudflare D1 database
-    await upsertUser({
+    // 3. Upsert user in Cloudflare D1 database (graceful fallback if offline)
+    try {
+      await upsertUser({
+        id: userId,
+        username,
+        access_token: accessToken,
+        avatar_url: avatarUrl
+      });
+    } catch (dbErr) {
+      console.warn("D1 upsertUser skipped or failed:", dbErr);
+    }
+
+    // 4. Create response and set persistent session cookie containing full session payload
+    const sessionPayload = {
       id: userId,
-      username,
-      access_token: accessToken,
-      avatar_url: userData.profile?.avatar || null
-    });
+      username: username,
+      avatar_url: avatarUrl,
+      access_token: accessToken
+    };
+    
+    // Base64 encode session payload for robust HTTP transmission
+    const sessionCookieValue = btoa(encodeURIComponent(JSON.stringify(sessionPayload)));
 
-    // 4. Create response and set persistent session cookie
     const response = NextResponse.redirect(`${origin}/?auth_success=1`);
     
-    // Set secure session cookie containing userId
-    response.cookies.set('speerchess_session', userId, {
+    // Set session cookie
+    response.cookies.set('speerchess_session', sessionCookieValue, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps,
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30 // 30 days
     });
@@ -88,7 +110,7 @@ export async function GET(request: NextRequest) {
 
     return response;
   } catch (e: any) {
-    console.error("OAuth callback error:", e);
+    console.error("OAuth callback exception:", e);
     return NextResponse.redirect(`${origin}/?auth_error=server_error`);
   }
 }

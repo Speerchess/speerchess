@@ -399,7 +399,7 @@ export default function Home() {
   // Check authentication status and load linked accounts from D1 Database on mount
   const checkAuth = async () => {
     try {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch('/api/auth/me', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         if (data.authenticated && data.user) {
@@ -423,6 +423,18 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const authErr = searchParams.get('auth_error');
+      const authOk = searchParams.get('auth_success');
+      if (authErr) {
+        console.error("Lichess OAuth Error:", authErr);
+        alert(language === 'ko' ? `Lichess 로그인 오류 (${authErr}). 다시 시도해주세요.` : `Lichess sign-in error (${authErr}). Please try again.`);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (authOk) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
     checkAuth();
   }, []);
 
