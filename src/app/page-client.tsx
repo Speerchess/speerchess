@@ -378,6 +378,8 @@ export default function Home() {
   const [userGames, setUserGames] = useState<UserGameItem[]>([]);
   const [loadingUserGames, setLoadingUserGames] = useState<boolean>(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
+  const [newAccountPlatform, setNewAccountPlatform] = useState<'chesscom' | 'lichess'>('chesscom');
+  const [newAccountUsername, setNewAccountUsername] = useState<string>('');
   const [inputLichessUser, setInputLichessUser] = useState<string>('');
   const [inputChessComUser, setInputChessComUser] = useState<string>('');
   const [isConnectingAccount, setIsConnectingAccount] = useState<boolean>(false);
@@ -555,9 +557,10 @@ export default function Home() {
       if (res.ok && data.success) {
         setLinkedAccounts(data.accounts);
         fetchMultiAccountGames(data.accounts, selectedAccountFilter);
-        setIsAccountModalOpen(false);
+        setNewAccountUsername('');
         setInputChessComUser('');
         setInputLichessUser('');
+        alert(language === 'ko' ? `✅ ${platform === 'lichess' ? 'Lichess' : 'Chess.com'} 계정 (${trimmed})이 성공적으로 연동되었습니다!` : `✅ Account (${trimmed}) connected!`);
       } else {
         alert(data.error || (language === 'ko' ? '계정 연동에 실패했습니다.' : 'Failed to connect account.'));
       }
@@ -8422,29 +8425,60 @@ export default function Home() {
                     )}
                   </div>
 
-                  {/* Add New Account Form (Chess.com or Sub-Lichess) */}
-                  <div className={`p-3 rounded-2xl border space-y-2.5 ${
+                  {/* Add New Account Form (Supports multiple Chess.com and Lichess accounts) */}
+                  <div className={`p-3.5 rounded-2xl border space-y-2.5 ${
                     darkMode === 'dark' ? 'bg-stone-950/60 border-stone-800' : 'bg-stone-50 border-stone-200'
                   }`}>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                      {language === 'ko' ? '+ 체스닷컴 / 부계정 추가 연동' : '+ Add Chess.com Account'}
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                        {language === 'ko' ? '+ 체스 계정 추가 연동 (복수 연동 가능)' : '+ Add Chess Account (Multiple)'}
+                      </span>
+                      <div className={`flex p-0.5 rounded-lg border text-[9px] font-bold ${
+                        darkMode === 'dark' ? 'bg-stone-900 border-stone-800' : 'bg-stone-200/60 border-stone-300'
+                      }`}>
+                        <button 
+                          type="button"
+                          onClick={() => setNewAccountPlatform('chesscom')}
+                          className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                            newAccountPlatform === 'chesscom' ? 'bg-emerald-600 text-white font-black shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          ♟️ 체스닷컴
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setNewAccountPlatform('lichess')}
+                          className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                            newAccountPlatform === 'lichess' ? 'bg-blue-600 text-white font-black shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          ⚡ Lichess
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="flex gap-2">
                       <input 
                         type="text" 
-                        placeholder="체스닷컴 닉네임 입력..."
-                        value={inputChessComUser}
-                        onChange={(e) => setInputChessComUser(e.target.value)}
+                        placeholder={newAccountPlatform === 'chesscom' ? '체스닷컴 닉네임 입력...' : '추가할 Lichess 닉네임 입력...'}
+                        value={newAccountUsername}
+                        onChange={(e) => setNewAccountUsername(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleAddLinkedAccount(newAccountPlatform, newAccountUsername);
+                          }
+                        }}
                         className={`flex-1 p-2 rounded-xl border text-xs font-bold ${
                           darkMode === 'dark' ? 'bg-stone-900 border-stone-750 text-white' : 'bg-white border-stone-200 text-slate-800'
                         }`}
                       />
                       <button 
-                        onClick={() => handleAddLinkedAccount('chesscom', inputChessComUser)}
-                        disabled={isConnectingAccount || !inputChessComUser.trim()}
-                        className="px-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95 shrink-0"
+                        onClick={() => handleAddLinkedAccount(newAccountPlatform, newAccountUsername)}
+                        disabled={isConnectingAccount || !newAccountUsername.trim()}
+                        className={`px-3.5 ${newAccountPlatform === 'lichess' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'} disabled:opacity-50 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95 shrink-0 flex items-center gap-1`}
                       >
-                        {isConnectingAccount ? '연동 중...' : '연동'}
+                        {isConnectingAccount ? <Loader2 size={12} className="animate-spin" /> : null}
+                        <span>{isConnectingAccount ? '연동 중...' : '연동 추가'}</span>
                       </button>
                     </div>
                   </div>
