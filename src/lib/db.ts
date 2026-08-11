@@ -504,3 +504,102 @@ export async function removeLinkedAccount(userId: string, platform: string, plat
   }
 }
 
+// 6. User Opening Tree & VIP Helpers
+export interface OpeningTreeRecord {
+  user_id: string;
+  is_vip: boolean;
+  max_ply: number;
+  total_games: number;
+  tree_json: string;
+  updated_at: string;
+}
+
+const memoryOpeningTrees: Record<string, OpeningTreeRecord> = {};
+const memoryVipUsers: Record<string, { isVip: boolean; vipKey: string }> = {};
+
+export async function saveOpeningTree(
+  userId: string,
+  isVip: boolean,
+  maxPly: number,
+  totalGames: number,
+  treeJson: string
+): Promise<boolean> {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  if (db) {
+    try {
+      await db.prepare(`
+        INSERT INTO user_opening_trees (user_id, is_vip, max_ply, total_games, tree_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          is_vip = excluded.is_vip,
+          max_ply = excluded.max_ply,
+          total_games = excluded.total_games,
+          tree_json = excluded.tree_json,
+          updated_at = excluded.updated_at
+      `).bind(userId.toLowerCase(), isVip ? 1 : 0, maxPly, totalGames, treeJson, now).run();
+      return true;
+    } catch (e) {
+      console.error("Failed to save opening tree in D1:", e);
+    }
+  }
+  
+  memoryOpeningTrees[userId.toLowerCase()] = {
+    user_id: userId.toLowerCase(),
+    is_vip: isVip,
+    max_ply: maxPly,
+    total_games: totalGames,
+    tree_json: treeJson,
+    updated_at: now
+  };
+  return true;
+}
+
+export async function getOpeningTreeRecord(userId: string): Promise<OpeningTreeRecord | null> {
+  const db = await getDb();
+  if (db) {
+    try {
+      const record = await db.prepare("SELECT * FROM user_opening_trees WHERE user_id = ?").bind(userId.toLowerCase()).first();
+      if (record) {
+        return {
+          user_id: record.user_id as string,
+          is_vip: Boolean(record.is_vip),
+          max_ply: (record.max_ply as number) || 30,
+          total_games: (record.total_games as number) || 0,
+          tree_json: record.tree_json as string,
+          updated_at: record.updated_at as string
+        };
+      }
+    } catch (e) {
+      console.error("Failed to get opening tree from D1:", e);
+    }
+  }
+  return memoryOpeningTrees[userId.toLowerCase()] || null;
+}
+
+export async function setUserVip(userId: string, vipKey: string): Promise<boolean> {
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.prepare("UPDATE users SET is_vip = 1, vip_key = ? WHERE id = ?").bind(vipKey, userId.toLowerCase()).run();
+      return true;
+    } catch (e) {
+      console.error("Failed to set VIP in D1:", e);
+    }
+  }
+  memoryVipUsers[userId.toLowerCase()] = { isVip: true, vipKey };
+  return true;
+}
+
+export async function getUserVipStatus(userId: string): Promise<boolean> {
+  const db = await getDb();
+  if (db) {
+    try {
+      const record = await db.prepare("SELECT is_vip FROM users WHERE id = ?").bind(userId.toLowerCase()).first();
+      if (record && record.is_vip) return true;
+    } catch (e) {}
+  }
+  return memoryVipUsers[userId.toLowerCase()]?.isVip || false;
+}
+
+

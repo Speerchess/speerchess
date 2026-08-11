@@ -407,6 +407,14 @@ export default function Home() {
           const accountsList = data.linkedAccounts || [];
           setLinkedAccounts(accountsList);
           fetchMultiAccountGames(accountsList, 'ALL');
+
+          // Check VIP status
+          fetch('/api/auth/vip')
+            .then(r => r.json())
+            .then(vData => {
+              if (vData.isVip) setIsVip(true);
+            })
+            .catch(() => {});
         } else {
           setCurrentUser(null);
           setLinkedAccounts([]);
@@ -449,8 +457,53 @@ export default function Home() {
       setLinkedAccounts([]);
       setUserGames([]);
       setSelectedAccountFilter('ALL');
+      setIsVip(false);
+      setPlayerTreeData(null);
     } catch (e) {
       console.error("Logout failed:", e);
+    }
+  };
+
+  const handleSyncOpeningTree = async () => {
+    setIsSyncingTree(true);
+    try {
+      const res = await fetch('/api/opening-tree', {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(language === 'ko' ? `✅ ${data.totalGames}개의 대국을 분석하여 오프닝 트리가 구축되었습니다!` : `✅ Synced ${data.totalGames} games into your opening tree!`);
+      } else {
+        alert(data.error || (language === 'ko' ? '오프닝 트리 동기화에 실패했습니다.' : 'Failed to sync opening tree.'));
+      }
+    } catch (e) {
+      alert(language === 'ko' ? '동기화 중 오류가 발생했습니다.' : 'Error during sync.');
+    } finally {
+      setIsSyncingTree(false);
+    }
+  };
+
+  const handleActivateVip = async () => {
+    if (!vipKeyInput.trim()) return;
+    setIsActivatingVip(true);
+    try {
+      const res = await fetch('/api/auth/vip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vipKey: vipKeyInput.trim() })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setIsVip(true);
+        alert(data.message || (language === 'ko' ? '✨ VIP 라이선스가 활성화되었습니다!' : 'VIP License Activated!'));
+        setVipKeyInput('');
+      } else {
+        alert(data.error || (language === 'ko' ? '유효하지 않은 키입니다.' : 'Invalid VIP key.'));
+      }
+    } catch (e) {
+      alert(language === 'ko' ? '오류가 발생했습니다.' : 'An error occurred.');
+    } finally {
+      setIsActivatingVip(false);
     }
   };
 
@@ -708,9 +761,15 @@ export default function Home() {
   const [showBoardHighlights, setShowBoardHighlights] = useState<boolean>(true);
   const [showMaterialDifference, setShowMaterialDifference] = useState<boolean>(true);
   const [engineLinesCount, setEngineLinesCount] = useState<number>(2);
-  const [explorerDb, setExplorerDb] = useState<'lichess' | 'masters'>('lichess');
+  const [explorerDb, setExplorerDb] = useState<'lichess' | 'masters' | 'player'>('lichess');
+  const [playerTreeColor, setPlayerTreeColor] = useState<'white' | 'black' | 'all'>('all');
   const [explorerSpeeds, setExplorerSpeeds] = useState<string[]>(['blitz', 'rapid', 'classical']);
   const [explorerRatings, setExplorerRatings] = useState<string[]>(['1600', '1800', '2000', '2200', '2500']);
+  const [isVip, setIsVip] = useState<boolean>(false);
+  const [vipKeyInput, setVipKeyInput] = useState<string>('');
+  const [isActivatingVip, setIsActivatingVip] = useState<boolean>(false);
+  const [isSyncingTree, setIsSyncingTree] = useState<boolean>(false);
+  const [playerTreeData, setPlayerTreeData] = useState<any>(null);
   const [bestMoveArrowEnabled, setBestMoveArrowEnabled] = useState<boolean>(true);
   const [isAnalyzeEngineEnabled, setIsAnalyzeEngineEnabled] = useState<boolean>(true);
   const [analyzeSubTab, setAnalyzeSubTab] = useState<'BOOK' | 'TREE' | 'SETTINGS'>('BOOK');
@@ -1570,7 +1629,7 @@ export default function Home() {
     }
   }, [fen, view, activeAnalysisFen, activeTab, isAnalyzeEngineEnabled, engineLinesCount, depth, analysisDepth]);
 
-  // Fetch opening book data from Lichess Explorer API
+  // Fetch opening book data from Lichess Explorer API or Personal Player Tree API
   useEffect(() => {
     if (activeTab !== 'analyze' || analyzeSubTab !== 'BOOK') return;
     
@@ -1578,22 +1637,31 @@ export default function Home() {
       const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
       setIsLoadingOpening(true);
       setOpeningData(null);
+      setPlayerTreeData(null);
       
       try {
-        const dbParam = explorerDb === 'masters' ? 'masters' : 'lichess';
-        let url = `/api/explorer?db=${dbParam}&fen=${encodeURIComponent(activeFen)}`;
-        if (dbParam === 'lichess') {
-          if (explorerSpeeds.length > 0) {
-            url += `&speeds=${explorerSpeeds.join(',')}`;
+        if (explorerDb === 'player') {
+          const res = await fetch(`/api/opening-tree?fen=${encodeURIComponent(activeFen)}&color=${playerTreeColor}`);
+          if (res.ok) {
+            const data = await res.json();
+            setPlayerTreeData(data);
           }
-          if (explorerRatings.length > 0) {
-            url += `&ratings=${explorerRatings.join(',')}`;
+        } else {
+          const dbParam = explorerDb === 'masters' ? 'masters' : 'lichess';
+          let url = `/api/explorer?db=${dbParam}&fen=${encodeURIComponent(activeFen)}`;
+          if (dbParam === 'lichess') {
+            if (explorerSpeeds.length > 0) {
+              url += `&speeds=${explorerSpeeds.join(',')}`;
+            }
+            if (explorerRatings.length > 0) {
+              url += `&ratings=${explorerRatings.join(',')}`;
+            }
           }
-        }
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          setOpeningData(data);
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            setOpeningData(data);
+          }
         }
       } catch (e) {
         console.error(e);
@@ -1602,9 +1670,9 @@ export default function Home() {
       }
     };
     
-    const debounce = setTimeout(fetchOpeningData, 300);
+    const debounce = setTimeout(fetchOpeningData, 250);
     return () => clearTimeout(debounce);
-  }, [activeAnalysisFen, activeTab, analyzeSubTab, explorerDb, explorerSpeeds.join(','), explorerRatings.join(',')]);
+  }, [activeAnalysisFen, activeTab, analyzeSubTab, explorerDb, playerTreeColor, explorerSpeeds.join(','), explorerRatings.join(',')]);
 
   // Chess OCR: Load TensorFlow.js and Filters.js scripts dynamically
   useEffect(() => {
@@ -5163,7 +5231,7 @@ export default function Home() {
           </div>
           
           {/* Sub-tab body */}
-          <div className="flex-1 p-3 overflow-y-auto no-scrollbar">
+          <div className="flex-1 p-3 overflow-y-auto no-scrollbar flex flex-col justify-between">
             {analyzeSubTab === 'BOOK' && (
               !currentUser ? (
                 <div className="text-center py-6 px-4 space-y-3">
@@ -5183,45 +5251,235 @@ export default function Home() {
                     <span>⚡ Lichess 계정으로 로그인</span>
                   </button>
                 </div>
-              ) : isLoadingOpening ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                </div>
-              ) : (!openingData || !openingData.moves || openingData.moves.length === 0) ? (
-                <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
-                  {language === 'ko' ? '오프닝 데이터베이스 기록이 없습니다.' : 'No opening statistics found.'}
-                </div>
               ) : (
-                <div className="space-y-1.5">
-                  {openingData.moves.slice(0, 8).map((move: any, idx: number) => {
-                    const total = move.white + move.draws + move.black;
-                    const wPct = total > 0 ? (move.white / total) * 100 : 0;
-                    const dPct = total > 0 ? (move.draws / total) * 100 : 0;
-                    const bPct = total > 0 ? (move.black / total) * 100 : 0;
-                    return (
-                      <div 
-                        key={idx} 
-                        onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
-                        className={`flex items-center justify-between text-[12px] font-bold border-b border-stone-800/20 pb-2 pt-1 cursor-pointer rounded-lg px-1 transition-colors ${isDark ? 'hover:bg-stone-800/50' : 'hover:bg-stone-100'}`}
-                      >
-                        <span className="w-12 text-left text-blue-500 font-black text-[13px]">
-                          {move.san}
-                        </span>
-                        <div className="flex items-center gap-1.5 flex-1 justify-center mx-2 shrink-0">
-                          <span className="text-[10px] text-slate-400 font-extrabold w-8 text-right shrink-0">{Math.round(wPct)}%</span>
-                          <div className="flex-1 h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner max-w-[80px]">
-                            <div style={{ width: `${wPct}%` }} className="bg-slate-200 h-full" title={`W: ${Math.round(wPct)}%`} />
-                            <div style={{ width: `${dPct}%` }} className="bg-slate-400 h-full" title={`D: ${Math.round(dPct)}%`} />
-                            <div style={{ width: `${bPct}%` }} className="bg-slate-800 h-full" title={`B: ${Math.round(bPct)}%`} />
-                          </div>
-                          <span className="text-[10px] text-slate-500 font-extrabold w-8 text-left shrink-0">{Math.round(bPct)}%</span>
-                        </div>
-                        <div className="w-16 text-right text-[11px] text-slate-400 font-extrabold">
-                          {total.toLocaleString()}
-                        </div>
+                <div className="space-y-2 flex-1 flex flex-col justify-between">
+                  {/* Database Switcher */}
+                  <div className={`flex p-0.5 rounded-xl border shrink-0 text-[10px] font-black ${
+                    isDark ? 'bg-stone-950 border-stone-800' : 'bg-stone-100 border-stone-200'
+                  }`}>
+                    <button 
+                      onClick={() => setExplorerDb('lichess')} 
+                      className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        explorerDb === 'lichess' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      🌐 Lichess
+                    </button>
+                    <button 
+                      onClick={() => setExplorerDb('masters')} 
+                      className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        explorerDb === 'masters' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      🏛️ Masters
+                    </button>
+                    <button 
+                      onClick={() => setExplorerDb('player')} 
+                      className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        explorerDb === 'player' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      👤 내 오프닝
+                    </button>
+                  </div>
+
+                  {/* Player Tree Perspective Filters */}
+                  {explorerDb === 'player' && (
+                    <div className="flex items-center justify-between gap-1 pb-1 shrink-0">
+                      <div className={`flex p-0.5 rounded-lg border text-[9px] font-bold ${
+                        isDark ? 'bg-stone-950 border-stone-850' : 'bg-stone-100 border-stone-200'
+                      }`}>
+                        <button 
+                          onClick={() => setPlayerTreeColor('all')} 
+                          className={`px-2 py-0.5 rounded transition-all cursor-pointer ${playerTreeColor === 'all' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+                        >
+                          전체
+                        </button>
+                        <button 
+                          onClick={() => setPlayerTreeColor('white')} 
+                          className={`px-2 py-0.5 rounded transition-all cursor-pointer ${playerTreeColor === 'white' ? 'bg-stone-200 text-slate-900 font-black' : 'text-slate-400'}`}
+                        >
+                          ⚪ 백
+                        </button>
+                        <button 
+                          onClick={() => setPlayerTreeColor('black')} 
+                          className={`px-2 py-0.5 rounded transition-all cursor-pointer ${playerTreeColor === 'black' ? 'bg-stone-800 text-slate-100 font-black' : 'text-slate-400'}`}
+                        >
+                          ⚫ 흑
+                        </button>
                       </div>
-                    );
-                  })}
+
+                      <button 
+                        onClick={handleSyncOpeningTree}
+                        disabled={isSyncingTree}
+                        className={`text-[9px] font-bold px-2 py-1 rounded-lg border flex items-center gap-1 transition-all cursor-pointer ${
+                          isDark ? 'bg-stone-900 border-stone-800 text-slate-300 hover:bg-stone-850' : 'bg-stone-100 border-stone-200 text-slate-700 hover:bg-stone-200'
+                        }`}
+                        title="전적 동기화"
+                      >
+                        <RefreshCw size={11} className={isSyncingTree ? 'animate-spin text-blue-400' : ''} />
+                        <span>{isSyncingTree ? '동기화 중...' : '전적 동기화'}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Moves List Area */}
+                  <div className="flex-1 space-y-1">
+                    {isLoadingOpening ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                      </div>
+                    ) : explorerDb === 'player' ? (
+                      !playerTreeData?.synced ? (
+                        <div className="text-center py-6 px-3 space-y-3">
+                          <div className="w-10 h-10 mx-auto rounded-xl bg-blue-600/15 border border-blue-500/30 flex items-center justify-center text-xl text-blue-400 font-black">
+                            🌳
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="font-extrabold text-xs">내 전적 오프닝 트리 생성</h4>
+                            <p className="text-[10px] text-slate-400 font-medium">
+                              연동된 계정의 최근 {isVip ? '5,000' : '1,000'}판을 분석하여 나만의 통계 트리를 구축합니다.
+                            </p>
+                          </div>
+                          <button 
+                            onClick={handleSyncOpeningTree}
+                            disabled={isSyncingTree}
+                            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-[11px] shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 mx-auto"
+                          >
+                            {isSyncingTree ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>분석 및 트리 생성 중...</span>
+                              </>
+                            ) : (
+                              <span>📥 오프닝 데이터 동기화 ({isVip ? '5,000판' : '1,000판'})</span>
+                            )}
+                          </button>
+                        </div>
+                      ) : (!playerTreeData.moves || playerTreeData.moves.length === 0) ? (
+                        <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
+                          이 포지션에서 플레이한 내 전적 기록이 없습니다.
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {playerTreeData.moves.slice(0, 8).map((move: any, idx: number) => {
+                            const total = move.count;
+                            const wPct = move.whitePct;
+                            const dPct = move.drawPct;
+                            const bPct = move.blackPct;
+                            return (
+                              <div 
+                                key={idx} 
+                                onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
+                                className={`flex items-center justify-between text-[12px] font-bold border-b border-stone-800/20 pb-1.5 pt-1 cursor-pointer rounded-lg px-1 transition-colors ${isDark ? 'hover:bg-stone-800/50' : 'hover:bg-stone-100'}`}
+                              >
+                                <span className="w-12 text-left text-blue-500 font-black text-[13px]">
+                                  {move.san}
+                                </span>
+                                <div className="flex items-center gap-1.5 flex-1 justify-center mx-2 shrink-0">
+                                  <span className="text-[10px] text-slate-400 font-extrabold w-8 text-right shrink-0">{wPct}%</span>
+                                  <div className="flex-1 h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner max-w-[80px]">
+                                    <div style={{ width: `${wPct}%` }} className="bg-slate-200 h-full" title={`백: ${wPct}%`} />
+                                    <div style={{ width: `${dPct}%` }} className="bg-slate-400 h-full" title={`무: ${dPct}%`} />
+                                    <div style={{ width: `${bPct}%` }} className="bg-slate-800 h-full" title={`흑: ${bPct}%`} />
+                                  </div>
+                                  <span className="text-[10px] text-slate-500 font-extrabold w-8 text-left shrink-0">{bPct}%</span>
+                                </div>
+                                <div className="w-14 text-right text-[11px] text-slate-400 font-extrabold">
+                                  {total}회
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )
+                    ) : (!openingData || !openingData.moves || openingData.moves.length === 0) ? (
+                      <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
+                        {language === 'ko' ? '오프닝 데이터베이스 기록이 없습니다.' : 'No opening statistics found.'}
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {openingData.moves.slice(0, 8).map((move: any, idx: number) => {
+                          const total = move.white + move.draws + move.black;
+                          const wPct = total > 0 ? (move.white / total) * 100 : 0;
+                          const dPct = total > 0 ? (move.draws / total) * 100 : 0;
+                          const bPct = total > 0 ? (move.black / total) * 100 : 0;
+                          return (
+                            <div 
+                              key={idx} 
+                              onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
+                              className={`flex items-center justify-between text-[12px] font-bold border-b border-stone-800/20 pb-1.5 pt-1 cursor-pointer rounded-lg px-1 transition-colors ${isDark ? 'hover:bg-stone-800/50' : 'hover:bg-stone-100'}`}
+                            >
+                              <span className="w-12 text-left text-blue-500 font-black text-[13px]">
+                                {move.san}
+                              </span>
+                              <div className="flex items-center gap-1.5 flex-1 justify-center mx-2 shrink-0">
+                                <span className="text-[10px] text-slate-400 font-extrabold w-8 text-right shrink-0">{Math.round(wPct)}%</span>
+                                <div className="flex-1 h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner max-w-[80px]">
+                                  <div style={{ width: `${wPct}%` }} className="bg-slate-200 h-full" title={`W: ${Math.round(wPct)}%`} />
+                                  <div style={{ width: `${dPct}%` }} className="bg-slate-400 h-full" title={`D: ${Math.round(dPct)}%`} />
+                                  <div style={{ width: `${bPct}%` }} className="bg-slate-800 h-full" title={`B: ${Math.round(bPct)}%`} />
+                                </div>
+                                <span className="text-[10px] text-slate-500 font-extrabold w-8 text-left shrink-0">{Math.round(bPct)}%</span>
+                              </div>
+                              <div className="w-16 text-right text-[11px] text-slate-400 font-extrabold">
+                                {total.toLocaleString()}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom Position Win Rate Summary Card */}
+                  {explorerDb === 'player' && playerTreeData?.total > 0 && (
+                    <div className={`mt-2 p-2.5 rounded-xl border text-[11px] font-bold space-y-1 shrink-0 ${
+                      isDark ? 'bg-stone-950/90 border-stone-800' : 'bg-stone-50 border-stone-200'
+                    }`}>
+                      <div className="flex justify-between items-center text-[10px]">
+                        <span className="text-slate-400 font-black flex items-center gap-1">
+                          🏆 이 포지션 내 전적
+                        </span>
+                        <span className="font-black text-blue-400">
+                          총 {playerTreeData.total}게임 ({playerTreeData.white}승 {playerTreeData.draws}무 {playerTreeData.black}패)
+                        </span>
+                      </div>
+                      <div className="h-2 w-full rounded-full overflow-hidden flex border border-stone-800 shadow-inner">
+                        <div style={{ width: `${Math.round((playerTreeData.white / playerTreeData.total) * 100)}%` }} className="bg-slate-200 h-full" title={`백 승: ${playerTreeData.white}`} />
+                        <div style={{ width: `${Math.round((playerTreeData.draws / playerTreeData.total) * 100)}%` }} className="bg-slate-400 h-full" title={`무승부: ${playerTreeData.draws}`} />
+                        <div style={{ width: `${Math.round((playerTreeData.black / playerTreeData.total) * 100)}%` }} className="bg-slate-800 h-full" title={`흑 승: ${playerTreeData.black}`} />
+                      </div>
+                    </div>
+                  )}
+
+                  {explorerDb !== 'player' && openingData && (openingData.white + openingData.draws + openingData.black) > 0 && (
+                    (() => {
+                      const licTotal = openingData.white + openingData.draws + openingData.black;
+                      const licW = Math.round((openingData.white / licTotal) * 100);
+                      const licD = Math.round((openingData.draws / licTotal) * 100);
+                      const licB = Math.round((openingData.black / licTotal) * 100);
+                      return (
+                        <div className={`mt-2 p-2.5 rounded-xl border text-[11px] font-bold space-y-1 shrink-0 ${
+                          isDark ? 'bg-stone-950/90 border-stone-800' : 'bg-stone-50 border-stone-200'
+                        }`}>
+                          <div className="flex justify-between items-center text-[10px]">
+                            <span className="text-slate-400 font-black flex items-center gap-1">
+                              🌐 이 포지션 전체 통계
+                            </span>
+                            <span className="font-black text-blue-400">
+                              총 {licTotal.toLocaleString()}게임 (백 {licW}% • 무 {licD}% • 흑 {licB}%)
+                            </span>
+                          </div>
+                          <div className="h-2 w-full rounded-full overflow-hidden flex border border-stone-800 shadow-inner">
+                            <div style={{ width: `${licW}%` }} className="bg-slate-200 h-full" title={`백 승: ${licW}%`} />
+                            <div style={{ width: `${licD}%` }} className="bg-slate-400 h-full" title={`무승부: ${licD}%`} />
+                            <div style={{ width: `${licB}%` }} className="bg-slate-800 h-full" title={`흑 승: ${licB}%`} />
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
               )
             )}
@@ -8189,6 +8447,79 @@ export default function Home() {
                         {isConnectingAccount ? '연동 중...' : '연동'}
                       </button>
                     </div>
+                  </div>
+
+                  {/* Opening Tree Repertoire Sync Card */}
+                  <div className={`p-3 rounded-2xl border space-y-2 ${
+                    darkMode === 'dark' ? 'bg-stone-950/60 border-stone-800' : 'bg-stone-50 border-stone-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        🌳 오프닝 전적 데이터 동기화
+                      </span>
+                      <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
+                        isVip 
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
+                          : 'bg-stone-800 text-slate-400 border-stone-700'
+                      }`}>
+                        {isVip ? '✨ VIP (5,000판 / 30수)' : '기본 (1,000판 / 15수)'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-medium">
+                      연동된 모든 계정의 최근 대국을 일괄 수집하여 개인화 오프닝 트리를 구축합니다.
+                    </p>
+                    <button 
+                      onClick={handleSyncOpeningTree}
+                      disabled={isSyncingTree}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      {isSyncingTree ? (
+                        <>
+                          <Loader2 size={13} className="animate-spin" />
+                          <span>전적 분석 및 트리 생성 중...</span>
+                        </>
+                      ) : (
+                        <span>📥 내 전적 {isVip ? '5,000' : '1,000'}판 오프닝 트리 동기화</span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Secret VIP Key Input Section */}
+                  <div className={`p-3 rounded-2xl border space-y-2 ${
+                    darkMode === 'dark' ? 'bg-stone-950/60 border-stone-800' : 'bg-stone-50 border-stone-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        🔑 스페셜 라이선스 키
+                      </span>
+                      {isVip && (
+                        <span className="text-[9px] font-black text-amber-400">✨ 활성화됨</span>
+                      )}
+                    </div>
+                    {isVip ? (
+                      <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold text-[10px] text-center">
+                        ✨ VIP 특수 라이선스가 활성화되었습니다 (최대 5,000게임 / 30수 저장)
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input 
+                          type="password" 
+                          placeholder="특수키 입력 (VIP 5,000판 해금)..."
+                          value={vipKeyInput}
+                          onChange={(e) => setVipKeyInput(e.target.value)}
+                          className={`flex-1 p-2 rounded-xl border text-xs font-bold ${
+                            darkMode === 'dark' ? 'bg-stone-900 border-stone-750 text-white' : 'bg-white border-stone-200 text-slate-800'
+                          }`}
+                        />
+                        <button 
+                          onClick={handleActivateVip}
+                          disabled={isActivatingVip || !vipKeyInput.trim()}
+                          className="px-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs cursor-pointer transition-all active:scale-95 shrink-0"
+                        >
+                          {isActivatingVip ? '확인 중...' : '적용'}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Logout Action */}
