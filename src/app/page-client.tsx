@@ -11,7 +11,7 @@ import { Chess } from 'chess.js';
 import { PRESET_GAMES } from '../lib/preset_games';
 import { UserGameItem } from './api/user-games/route';
 import { LinkedAccountRecord } from '../lib/db';
-import { buildOpeningTreeFromGames, GameInputForTree } from '../lib/openingTree';
+import { buildOpeningTreeFromGames, queryOpeningTree, GameInputForTree } from '../lib/openingTree';
 
 type ViewState = 'INPUT' | 'LOADING' | 'SUMMARY' | 'REVIEW' | 'EXPLORE' | 'BRILLIANT' | 'BLUNDER' | 'CHESSLE' | 'HISTORY' | 'GAME_VIEW';
 type ReviewTabState = 'MOVES' | 'ENGINE'; // MOVES: 감상모드, ENGINE: 분석모드
