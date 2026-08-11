@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLinkedAccounts, getUserVipStatus, saveOpeningTree, getOpeningTreeRecord } from '../../../lib/db';
-import { buildOpeningTreeFromGames, queryOpeningTree, GameInputForTree } from '../../../lib/openingTree';
+import { buildOpeningTreeFromGames, queryOpeningTree, GameInputForTree, CompactOpeningTree } from '../../../lib/openingTree';
 
 export const runtime = 'edge';
 
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/opening-tree - Ingest up to 1,000 (or VIP 5,000) games and build Opening Tree
+// POST /api/opening-tree - Accepts client-compiled Opening Tree or server fallback
 export async function POST(request: NextRequest) {
   try {
     const sessionUserId = getSessionUserId(request);
@@ -72,56 +72,62 @@ export async function POST(request: NextRequest) {
     }
 
     const isVip = await getUserVipStatus(sessionUserId);
-    const maxGames = isVip ? 5000 : 1000;
-    const maxPly = isVip ? 60 : 30; // 30 full moves for VIP, 15 for regular
+    const maxAllowedGames = isVip ? 5000 : 1000;
+    const maxAllowedPly = isVip ? 60 : 30;
 
-    // 1. Fetch user's linked accounts
-    let accounts = await getLinkedAccounts(sessionUserId);
-    if (!accounts || accounts.length === 0) {
-      accounts = [
-        {
-          user_id: sessionUserId,
-          platform: 'lichess',
-          platform_username: sessionUserId,
-          is_primary: true
-        }
-      ];
+    let body: any = {};
+    try {
+      body = await request.json();
+    } catch (e) {}
+
+    // 1. Client-Side Compiled Tree (Instant & Zero Server Timeout)
+    if (body && body.tree) {
+      const tree: CompactOpeningTree = body.tree;
+      const totalGames = Math.min(body.totalGames || tree.totalGames || 0, maxAllowedGames);
+      const maxPly = Math.min(body.maxPly || tree.maxPly || maxAllowedPly, maxAllowedPly);
+
+      await saveOpeningTree(sessionUserId, isVip, maxPly, totalGames, JSON.stringify(tree));
+
+      return NextResponse.json({
+        success: true,
+        message: `성공적으로 ${totalGames}개의 대국을 분석하여 오프닝 트리가 저장되었습니다!`,
+        totalGames,
+        isVip,
+        maxPly,
+        updatedAt: tree.updatedAt || new Date().toISOString()
+      });
     }
 
-    const gamesPerAccount = Math.ceil(maxGames / accounts.length);
-    const allFetchedGames: GameInputForTree[] = [];
-
-    // 2. Fetch games from all connected accounts
-    for (const acc of accounts) {
-      try {
+    // 2. Server-side fallback (if client sent raw games or empty body)
+    let games: GameInputForTree[] = body.games || [];
+    if (games.length === 0) {
+      let accounts = await getLinkedAccounts(sessionUserId);
+      if (!accounts || accounts.length === 0) {
+        accounts = [{ user_id: sessionUserId, platform: 'lichess', platform_username: sessionUserId, is_primary: true }];
+      }
+      const quota = Math.ceil(maxAllowedGames / accounts.length);
+      for (const acc of accounts) {
         if (acc.platform === 'lichess') {
-          const lichessGames = await fetchLichessGamesForTree(acc.platform_username, gamesPerAccount);
-          allFetchedGames.push(...lichessGames);
+          games.push(...(await fetchLichessGamesForTree(acc.platform_username, quota)));
         } else if (acc.platform === 'chesscom') {
-          const chesscomGames = await fetchChessComGamesForTree(acc.platform_username, gamesPerAccount);
-          allFetchedGames.push(...chesscomGames);
+          games.push(...(await fetchChessComGamesForTree(acc.platform_username, quota)));
         }
-      } catch (err) {
-        console.error(`Failed fetching games for account ${acc.platform}:${acc.platform_username}`, err);
       }
     }
 
-    if (allFetchedGames.length === 0) {
+    if (games.length === 0) {
       return NextResponse.json({ error: '불러올 수 있는 대국 기록이 없습니다.' }, { status: 404 });
     }
 
-    // 3. Compile compact Opening Tree
-    const tree = buildOpeningTreeFromGames(allFetchedGames, maxPly);
-
-    // 4. Save to Cloudflare D1 Database
-    await saveOpeningTree(sessionUserId, isVip, maxPly, tree.totalGames, JSON.stringify(tree));
+    const tree = buildOpeningTreeFromGames(games.slice(0, maxAllowedGames), maxAllowedPly);
+    await saveOpeningTree(sessionUserId, isVip, maxAllowedPly, tree.totalGames, JSON.stringify(tree));
 
     return NextResponse.json({
       success: true,
       message: `성공적으로 ${tree.totalGames}개의 대국을 분석하여 오프닝 트리를 구축했습니다!`,
       totalGames: tree.totalGames,
       isVip,
-      maxPly,
+      maxPly: maxAllowedPly,
       updatedAt: tree.updatedAt
     });
   } catch (error: any) {
@@ -131,85 +137,93 @@ export async function POST(request: NextRequest) {
 
 // Lichess bulk game fetcher
 async function fetchLichessGamesForTree(username: string, max: number): Promise<GameInputForTree[]> {
-  const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=${max}&moves=true&pgnInJson=true&clocks=false&evals=false`;
-  const res = await fetch(url, {
-    headers: {
-      'Accept': 'application/x-ndjson',
-      'User-Agent': 'Speerchess/1.0'
-    }
-  });
+  try {
+    const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=${max}&moves=true&pgnInJson=true&clocks=false&evals=false`;
+    const res = await fetch(url, {
+      headers: {
+        'Accept': 'application/x-ndjson',
+        'User-Agent': 'Speerchess/1.0'
+      }
+    });
 
-  if (!res.ok) return [];
+    if (!res.ok) return [];
 
-  const text = await res.text();
-  const lines = text.trim().split('\n').filter(Boolean);
-  const games: GameInputForTree[] = [];
+    const text = await res.text();
+    const lines = text.trim().split('\n').filter(Boolean);
+    const games: GameInputForTree[] = [];
 
-  for (const line of lines) {
-    try {
-      const g = JSON.parse(line);
-      const isWhite = g.players?.white?.user?.id?.toLowerCase() === username.toLowerCase() ||
-                      g.players?.white?.user?.name?.toLowerCase() === username.toLowerCase();
-      
-      let outcome = 'draw';
-      if (g.winner === 'white') outcome = '1-0';
-      else if (g.winner === 'black') outcome = '0-1';
-      else outcome = '1/2-1/2';
-
-      games.push({
-        pgn: g.pgn || g.moves,
-        moves: g.moves ? g.moves.split(' ') : undefined,
-        userColor: isWhite ? 'white' : 'black',
-        result: outcome
-      });
-    } catch (e) {}
-  }
-
-  return games;
-}
-
-// Chess.com bulk game fetcher (archives)
-async function fetchChessComGamesForTree(username: string, max: number): Promise<GameInputForTree[]> {
-  const archivesRes = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(username)}/games/archives`, {
-    headers: { 'User-Agent': 'speerchess-app/1.0' }
-  });
-
-  if (!archivesRes.ok) return [];
-
-  const { archives } = await archivesRes.json();
-  if (!archives || !Array.isArray(archives)) return [];
-
-  const games: GameInputForTree[] = [];
-  const recentArchives = archives.slice(-6).reverse(); // Last 6 months
-
-  for (const archiveUrl of recentArchives) {
-    if (games.length >= max) break;
-    try {
-      const monthRes = await fetch(archiveUrl, {
-        headers: { 'User-Agent': 'speerchess-app/1.0' }
-      });
-      if (!monthRes.ok) continue;
-
-      const { games: monthGames } = await monthRes.json();
-      if (!monthGames || !Array.isArray(monthGames)) continue;
-
-      for (const mg of monthGames.reverse()) {
-        if (games.length >= max) break;
-        const isWhite = mg.white?.username?.toLowerCase() === username.toLowerCase();
+    for (const line of lines) {
+      try {
+        const g = JSON.parse(line);
+        const isWhite = g.players?.white?.user?.id?.toLowerCase() === username.toLowerCase() ||
+                        g.players?.white?.user?.name?.toLowerCase() === username.toLowerCase();
         
         let outcome = 'draw';
-        if (mg.white?.result === 'win') outcome = '1-0';
-        else if (mg.black?.result === 'win') outcome = '0-1';
+        if (g.winner === 'white') outcome = '1-0';
+        else if (g.winner === 'black') outcome = '0-1';
         else outcome = '1/2-1/2';
 
         games.push({
-          pgn: mg.pgn,
+          pgn: g.pgn || g.moves,
+          moves: g.moves ? g.moves.split(' ') : undefined,
           userColor: isWhite ? 'white' : 'black',
           result: outcome
         });
-      }
-    } catch (e) {}
-  }
+      } catch (e) {}
+    }
 
-  return games;
+    return games;
+  } catch (e) {
+    return [];
+  }
+}
+
+// Chess.com bulk game fetcher
+async function fetchChessComGamesForTree(username: string, max: number): Promise<GameInputForTree[]> {
+  try {
+    const archivesRes = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(username)}/games/archives`, {
+      headers: { 'User-Agent': 'speerchess-app/1.0' }
+    });
+
+    if (!archivesRes.ok) return [];
+
+    const { archives } = await archivesRes.json();
+    if (!archives || !Array.isArray(archives)) return [];
+
+    const games: GameInputForTree[] = [];
+    const recentArchives = archives.slice(-6).reverse();
+
+    for (const archiveUrl of recentArchives) {
+      if (games.length >= max) break;
+      try {
+        const monthRes = await fetch(archiveUrl, {
+          headers: { 'User-Agent': 'speerchess-app/1.0' }
+        });
+        if (!monthRes.ok) continue;
+
+        const { games: monthGames } = await monthRes.json();
+        if (!monthGames || !Array.isArray(monthGames)) continue;
+
+        for (const mg of monthGames.reverse()) {
+          if (games.length >= max) break;
+          const isWhite = mg.white?.username?.toLowerCase() === username.toLowerCase();
+          
+          let outcome = 'draw';
+          if (mg.white?.result === 'win') outcome = '1-0';
+          else if (mg.black?.result === 'win') outcome = '0-1';
+          else outcome = '1/2-1/2';
+
+          games.push({
+            pgn: mg.pgn,
+            userColor: isWhite ? 'white' : 'black',
+            result: outcome
+          });
+        }
+      } catch (e) {}
+    }
+
+    return games;
+  } catch (e) {
+    return [];
+  }
 }

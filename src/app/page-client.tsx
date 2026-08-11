@@ -11,6 +11,7 @@ import { Chess } from 'chess.js';
 import { PRESET_GAMES } from '../lib/preset_games';
 import { UserGameItem } from './api/user-games/route';
 import { LinkedAccountRecord } from '../lib/db';
+import { buildOpeningTreeFromGames, GameInputForTree } from '../lib/openingTree';
 
 type ViewState = 'INPUT' | 'LOADING' | 'SUMMARY' | 'REVIEW' | 'EXPLORE' | 'BRILLIANT' | 'BLUNDER' | 'CHESSLE' | 'HISTORY' | 'GAME_VIEW';
 type ReviewTabState = 'MOVES' | 'ENGINE'; // MOVES: 감상모드, ENGINE: 분석모드
@@ -383,6 +384,7 @@ export default function Home() {
   const [inputLichessUser, setInputLichessUser] = useState<string>('');
   const [inputChessComUser, setInputChessComUser] = useState<string>('');
   const [isConnectingAccount, setIsConnectingAccount] = useState<boolean>(false);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; stage: string } | null>(null);
   
   // Selected Game View (Chess.com-style preview before full review)
   const [selectedUserGame, setSelectedUserGame] = useState<UserGameItem | null>(null);
@@ -467,21 +469,152 @@ export default function Home() {
   };
 
   const handleSyncOpeningTree = async () => {
+    if (!currentUser) {
+      alert(language === 'ko' ? '먼저 Lichess로 로그인해 주세요.' : 'Please sign in first.');
+      return;
+    }
+
     setIsSyncingTree(true);
+    const targetMax = isVip ? 5000 : 1000;
+    const targetPly = isVip ? 60 : 30;
+
+    setSyncProgress({ current: 0, total: targetMax, stage: language === 'ko' ? '대국 기록 수집 준비 중...' : 'Preparing...' });
+
     try {
-      const res = await fetch('/api/opening-tree', {
-        method: 'POST'
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        alert(language === 'ko' ? `✅ ${data.totalGames}개의 대국을 분석하여 오프닝 트리가 구축되었습니다!` : `✅ Synced ${data.totalGames} games into your opening tree!`);
-      } else {
-        alert(data.error || (language === 'ko' ? '오프닝 트리 동기화에 실패했습니다.' : 'Failed to sync opening tree.'));
+      // 1. Get linked accounts
+      let accountsToSync = linkedAccounts;
+      if (!accountsToSync || accountsToSync.length === 0) {
+        accountsToSync = [{ user_id: currentUser.id, platform: 'lichess', platform_username: currentUser.username, is_primary: true }];
       }
-    } catch (e) {
-      alert(language === 'ko' ? '동기화 중 오류가 발생했습니다.' : 'Error during sync.');
+
+      const quotaPerAccount = Math.ceil(targetMax / accountsToSync.length);
+      const collectedGames: GameInputForTree[] = [];
+
+      for (let i = 0; i < accountsToSync.length; i++) {
+        const acc = accountsToSync[i];
+        setSyncProgress({
+          current: collectedGames.length,
+          total: targetMax,
+          stage: `${acc.platform === 'lichess' ? '⚡ Lichess' : '♟️ Chess.com'} (${acc.platform_username}) 대국 수집 중...`
+        });
+
+        try {
+          if (acc.platform === 'lichess') {
+            const url = `https://lichess.org/api/games/user/${encodeURIComponent(acc.platform_username)}?max=${quotaPerAccount}&moves=true&pgnInJson=true&clocks=false&evals=false`;
+            const res = await fetch(url, { headers: { 'Accept': 'application/x-ndjson' } });
+            if (res.ok) {
+              const text = await res.text();
+              const lines = text.trim().split('\n').filter(Boolean);
+              for (const line of lines) {
+                try {
+                  const g = JSON.parse(line);
+                  const isWhite = g.players?.white?.user?.id?.toLowerCase() === acc.platform_username.toLowerCase() ||
+                                  g.players?.white?.user?.name?.toLowerCase() === acc.platform_username.toLowerCase();
+                  let outcome = 'draw';
+                  if (g.winner === 'white') outcome = '1-0';
+                  else if (g.winner === 'black') outcome = '0-1';
+                  else outcome = '1/2-1/2';
+
+                  collectedGames.push({
+                    pgn: g.pgn || g.moves,
+                    moves: g.moves ? g.moves.split(' ') : undefined,
+                    userColor: isWhite ? 'white' : 'black',
+                    result: outcome
+                  });
+                } catch (e) {}
+              }
+            }
+          } else if (acc.platform === 'chesscom') {
+            const archRes = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(acc.platform_username)}/games/archives`);
+            if (archRes.ok) {
+              const { archives } = await archRes.json();
+              if (Array.isArray(archives)) {
+                const recent = archives.slice(-6).reverse();
+                for (const aUrl of recent) {
+                  if (collectedGames.length >= targetMax) break;
+                  const mRes = await fetch(aUrl);
+                  if (mRes.ok) {
+                    const { games: mGames } = await mRes.json();
+                    if (Array.isArray(mGames)) {
+                      for (const mg of mGames.reverse()) {
+                        if (collectedGames.length >= targetMax) break;
+                        const isWhite = mg.white?.username?.toLowerCase() === acc.platform_username.toLowerCase();
+                        let outcome = 'draw';
+                        if (mg.white?.result === 'win') outcome = '1-0';
+                        else if (mg.black?.result === 'win') outcome = '0-1';
+                        else outcome = '1/2-1/2';
+
+                        collectedGames.push({
+                          pgn: mg.pgn,
+                          userColor: isWhite ? 'white' : 'black',
+                          result: outcome
+                        });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (accErr) {
+          console.error(`Failed to fetch for ${acc.platform}:${acc.platform_username}`, accErr);
+        }
+      }
+
+      if (collectedGames.length === 0) {
+        alert(language === 'ko' ? '가져올 수 있는 대국 기록이 없습니다.' : 'No games found to sync.');
+        return;
+      }
+
+      // 2. Compile Opening Tree locally on client browser
+      setSyncProgress({
+        current: collectedGames.length,
+        total: collectedGames.length,
+        stage: `🌳 총 ${collectedGames.length}개 대국 오프닝 트리 계산 중...`
+      });
+
+      await new Promise(r => setTimeout(r, 60));
+
+      const tree = buildOpeningTreeFromGames(collectedGames, targetPly);
+
+      // 3. Upload compiled tree JSON to D1
+      setSyncProgress({
+        current: collectedGames.length,
+        total: collectedGames.length,
+        stage: '☁️ 데이터베이스 저장 중...'
+      });
+
+      const saveRes = await fetch('/api/opening-tree', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tree, totalGames: tree.totalGames, maxPly: targetPly })
+      });
+
+      const saveData = await saveRes.json();
+      if (saveRes.ok && saveData.success) {
+        setSyncProgress({
+          current: tree.totalGames,
+          total: tree.totalGames,
+          stage: '✅ 오프닝 트리 동기화 완료!'
+        });
+        alert(language === 'ko' ? `✅ 성공적으로 ${tree.totalGames}개의 대국을 분석하여 나만의 오프닝 트리를 구축했습니다!` : `✅ Successfully synced ${tree.totalGames} games into your opening tree!`);
+        
+        // Refresh query
+        const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        const qRes = await fetch(`/api/opening-tree?fen=${encodeURIComponent(activeFen)}&color=${playerTreeColor}`);
+        if (qRes.ok) {
+          const qData = await qRes.json();
+          setPlayerTreeData(qData);
+        }
+      } else {
+        alert(saveData.error || (language === 'ko' ? '저장에 실패했습니다.' : 'Failed to save.'));
+      }
+    } catch (e: any) {
+      console.error("Sync error:", e);
+      alert(language === 'ko' ? `동기화 중 오류가 발생했습니다: ${e.message || e}` : 'Error during sync.');
     } finally {
       setIsSyncingTree(false);
+      setTimeout(() => setSyncProgress(null), 3000);
     }
   };
 
@@ -5326,6 +5459,29 @@ export default function Home() {
                     </div>
                   )}
 
+                  {/* Sync Progress Banner */}
+                  {syncProgress && (
+                    <div className={`p-2.5 rounded-xl border text-xs space-y-1.5 shrink-0 animate-fade-in ${
+                      isDark ? 'bg-stone-950 border-blue-500/30' : 'bg-blue-50/70 border-blue-200'
+                    }`}>
+                      <div className="flex justify-between items-center text-[10px] font-bold">
+                        <span className="text-blue-400 flex items-center gap-1.5">
+                          <Loader2 size={12} className="animate-spin text-blue-500" />
+                          {syncProgress.stage}
+                        </span>
+                        <span className="text-slate-400 font-extrabold">
+                          {syncProgress.total > 0 ? Math.round((syncProgress.current / syncProgress.total) * 100) : 0}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-stone-800 rounded-full h-1.5 overflow-hidden border border-stone-700">
+                        <div 
+                          className="bg-gradient-to-r from-blue-600 to-emerald-500 h-full transition-all duration-300 rounded-full" 
+                          style={{ width: `${syncProgress.total > 0 ? Math.min(100, Math.round((syncProgress.current / syncProgress.total) * 100)) : 0}%` }} 
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Moves List Area */}
                   <div className="flex-1 space-y-1">
                     {isLoadingOpening ? (
@@ -5352,7 +5508,7 @@ export default function Home() {
                             {isSyncingTree ? (
                               <>
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>분석 및 트리 생성 중...</span>
+                                <span>{syncProgress?.stage || '분석 및 트리 생성 중...'}</span>
                               </>
                             ) : (
                               <span>📥 오프닝 데이터 동기화 ({isVip ? '5,000판' : '1,000판'})</span>
@@ -8502,6 +8658,27 @@ export default function Home() {
                     <p className="text-[10px] text-slate-400 font-medium">
                       연동된 모든 계정의 최근 대국을 일괄 수집하여 개인화 오프닝 트리를 구축합니다.
                     </p>
+                    {syncProgress && (
+                      <div className={`p-2.5 rounded-xl border text-xs space-y-1.5 animate-fade-in ${
+                        darkMode === 'dark' ? 'bg-stone-900 border-blue-500/30' : 'bg-blue-50/70 border-blue-200'
+                      }`}>
+                        <div className="flex justify-between items-center text-[10px] font-bold">
+                          <span className="text-blue-400 flex items-center gap-1.5">
+                            <Loader2 size={12} className="animate-spin text-blue-500" />
+                            {syncProgress.stage}
+                          </span>
+                          <span className="text-slate-400 font-extrabold">
+                            {syncProgress.total > 0 ? Math.round((syncProgress.current / syncProgress.total) * 100) : 0}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-stone-800 rounded-full h-1.5 overflow-hidden border border-stone-700">
+                          <div 
+                            className="bg-gradient-to-r from-blue-600 to-emerald-500 h-full transition-all duration-300 rounded-full" 
+                            style={{ width: `${syncProgress.total > 0 ? Math.min(100, Math.round((syncProgress.current / syncProgress.total) * 100)) : 0}%` }} 
+                          />
+                        </div>
+                      </div>
+                    )}
                     <button 
                       onClick={handleSyncOpeningTree}
                       disabled={isSyncingTree}
@@ -8510,7 +8687,7 @@ export default function Home() {
                       {isSyncingTree ? (
                         <>
                           <Loader2 size={13} className="animate-spin" />
-                          <span>전적 분석 및 트리 생성 중...</span>
+                          <span>{syncProgress?.stage || '전적 분석 및 트리 생성 중...'}</span>
                         </>
                       ) : (
                         <span>📥 내 전적 {isVip ? '5,000' : '1,000'}판 오프닝 트리 동기화</span>
