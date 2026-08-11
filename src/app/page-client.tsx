@@ -2488,7 +2488,7 @@ export default function Home() {
     }
   };
 
-  const exportReviewToAnalyze = () => {
+  const exportReviewToAnalyze = (targetMoveIndex?: number) => {
     if (!analysis) return;
     const newTree: Record<string, any> = {
       'root': {
@@ -2506,6 +2506,7 @@ export default function Home() {
     const cTemp = new Chess();
     let currentId = 'root';
     let targetId = 'root';
+    const targetIdx = targetMoveIndex !== undefined ? targetMoveIndex : currentMoveIndex;
     
     for (let i = 0; i < analysis.moves.length; i++) {
       const move = analysis.moves[i];
@@ -2520,10 +2521,11 @@ export default function Home() {
           fen: cTemp.fen(),
           parentId: currentId,
           children: [],
-          eval: analysis.evaluationHistory[i + 1] !== undefined ? analysis.evaluationHistory[i + 1] : 0
+          eval: analysis.evaluationHistory[i + 1] !== undefined ? analysis.evaluationHistory[i + 1] : 0,
+          classification: move.classification
         };
         newTree[currentId].children.push(nextId);
-        if (i === currentMoveIndex) {
+        if (i === targetIdx) {
           targetId = nextId;
         }
         currentId = nextId;
@@ -2536,6 +2538,48 @@ export default function Home() {
     setCurrentNodeId(targetId);
     setAnalyzeMode('active');
     setActiveTab('analyze');
+  };
+
+  const handleExportAnalysisGif = async () => {
+    try {
+      setIsExportingGif(true);
+      const getMovesList = (nodeId: string): string[] => {
+        const node = moveTree[nodeId];
+        if (!node || !node.children || node.children.length === 0) return [];
+        const firstChild = moveTree[node.children[0]];
+        return [firstChild.san, ...getMovesList(firstChild.id)];
+      };
+      const moves = getMovesList('root');
+      if (moves.length === 0) {
+        alert(language === 'ko' ? '내보낼 수순이 없습니다.' : 'No moves to export.');
+        return;
+      }
+      let pgnStr = '';
+      for (let i = 0; i < moves.length; i += 2) {
+        pgnStr += `${Math.floor(i / 2) + 1}. ${moves[i]} ${moves[i+1] || ''} `;
+      }
+      
+      const themeColors = boardThemes[boardTheme] || boardThemes.slate;
+      const gifBlob = await generateGifClient(pgnStr.trim(), analysis || undefined, {
+        darkColor: themeColors.dark,
+        lightColor: themeColors.light,
+        orientation: (boardOrientation as 'white' | 'black') || 'white',
+        annotationMode: 'all',
+        showPlayerNames: true,
+        onProgress: () => {}
+      });
+      
+      const gifUrl = URL.createObjectURL(gifBlob);
+      const a = document.createElement('a');
+      a.href = gifUrl;
+      a.download = `speerchess-analysis-${Date.now()}.gif`;
+      a.click();
+    } catch (e: any) {
+      console.error(e);
+      alert(language === 'ko' ? 'GIF 생성에 실패했습니다.' : 'Failed to generate GIF.');
+    } finally {
+      setIsExportingGif(false);
+    }
   };
 
   // Dynamic centipawn annotation calculator
@@ -2616,9 +2660,9 @@ export default function Home() {
     setCurrentMoveIndex(index);
   };
 
-  // Toggle tab view: handles resetting the board position when switching back to the moves list view
+  // Toggle to full analysis board at current position
   const handleTabToggle = () => {
-    setReviewTab(prev => prev === 'MOVES' ? 'ENGINE' : 'MOVES');
+    exportReviewToAnalyze(currentMoveIndex);
   };
 
   // Click-to-move state & helpers
@@ -5077,8 +5121,16 @@ export default function Home() {
             <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">{language === 'ko' ? '로컬 실시간 피드백' : 'Local real-time evaluation'}</span>
           </div>
           
-          {/* Header settings icon (3-dots vertical settings) */}
-          <div className="relative">
+          {/* Header Actions (GIF export & settings) */}
+          <div className="flex items-center gap-1 relative">
+            <button 
+              onClick={handleExportAnalysisGif}
+              disabled={isExportingGif}
+              className={`p-2 rounded-full transition-colors cursor-pointer flex items-center gap-1 ${isDark ? 'hover:bg-stone-800 text-blue-400' : 'hover:bg-stone-50 text-blue-600'}`}
+              title={language === 'ko' ? 'GIF 애니메이션 내보내기' : 'Export GIF'}
+            >
+              {isExportingGif ? <Loader2 size={18} className="animate-spin text-blue-500" /> : <Download size={18} />}
+            </button>
             <button 
               onClick={() => setIsAnalyzeSettingsOpen(prev => !prev)}
               className={`p-2 rounded-full transition-colors cursor-pointer ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-50 text-slate-655'}`}
@@ -5740,6 +5792,17 @@ export default function Home() {
                 </button>
                 <button 
                   onClick={() => {
+                    handleExportAnalysisGif();
+                    setIsAnalyzeMenuOpen(false);
+                  }}
+                  disabled={isExportingGif}
+                  className={`w-full text-left px-3 py-2 rounded-xl cursor-pointer flex items-center gap-1.5 ${isDark ? 'hover:bg-stone-800 text-blue-400' : 'hover:bg-stone-100 text-blue-600'}`}
+                >
+                  <span>🎬</span>
+                  <span>{isExportingGif ? 'GIF 생성 중...' : (language === 'ko' ? 'GIF 애니메이션 내보내기' : 'Export Animated GIF')}</span>
+                </button>
+                <button 
+                  onClick={() => {
                     navigator.clipboard.writeText(activeFen);
                     alert(language === 'ko' ? 'FEN이 복사되었습니다!' : 'FEN copied!');
                     setIsAnalyzeMenuOpen(false);
@@ -6351,7 +6414,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* VIEW: SUMMARY (Review Summary - Matching Screenshot 3) */}
+        {/* VIEW: SUMMARY (Review Summary - Speerchess Sleek Design) */}
         {view === 'SUMMARY' && activeTab === 'review' && analysis && (
           <div className={`flex-1 flex flex-col overflow-y-auto no-scrollbar ${
             darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
@@ -6367,9 +6430,12 @@ export default function Home() {
               >
                 <ChevronLeft size={22} />
               </button>
-              <h2 className="font-black text-base">
-                {language === 'ko' ? '게임 리뷰' : 'Game Review'}
-              </h2>
+              <div className="flex items-center gap-1.5">
+                <SpeerLogo className={`w-5 h-5 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
+                <h2 className="font-black text-sm">
+                  {language === 'ko' ? '게임 정밀 분석 결과' : 'Game Analysis Summary'}
+                </h2>
+              </div>
               <button 
                 onClick={() => setIsShareModalOpen(true)}
                 className={`p-2 rounded-full transition-colors cursor-pointer ${
@@ -6381,24 +6447,56 @@ export default function Home() {
               </button>
             </header>
 
-            <main className="p-4 space-y-4 flex-1">
-              {/* Coach Speech Bubble (Screenshot 3) */}
-              <div className="flex items-start gap-3 px-1">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-800 to-amber-600 border-2 border-white/70 shadow-md flex items-center justify-center text-2xl shrink-0">
-                  👨🏾‍🏫
-                </div>
-                <div className={`flex-1 p-3.5 rounded-2xl shadow-md border text-xs font-semibold leading-relaxed relative ${
-                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-slate-100' : 'bg-white border-stone-200 text-slate-800'
+            <main className="p-4 space-y-3.5 flex-1">
+              {/* Dual Player Accuracies Card */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center relative shadow-sm ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
                 }`}>
-                  {coachComment}
+                  <div className="flex items-center gap-1 mb-1 max-w-full px-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-white border border-stone-400 shrink-0" />
+                    <span className="text-xs font-black truncate">{selectedUserGame ? selectedUserGame.white.username : 'White'}</span>
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-0.5">정확도</span>
+                  <span className="text-3xl font-black text-blue-500">{analysis.whiteAccuracy}%</span>
+                </div>
+
+                <div className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center relative shadow-sm ${
+                  darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
+                }`}>
+                  <div className="flex items-center gap-1 mb-1 max-w-full px-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-stone-900 border border-stone-600 shrink-0" />
+                    <span className="text-xs font-black truncate">{selectedUserGame ? selectedUserGame.black.username : 'Black'}</span>
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-0.5">정확도</span>
+                  <span className="text-3xl font-black text-emerald-500">{analysis.blackAccuracy}%</span>
                 </div>
               </div>
 
-              {/* Evaluation Flow AreaChart (Screenshot 3) */}
-              <div className={`rounded-2xl shadow-sm border p-4 h-48 flex flex-col justify-between ${
+              {/* Coach Insight Summary Card */}
+              <div className={`p-3.5 rounded-2xl border flex items-start gap-3 shadow-sm ${
+                darkMode === 'dark' ? 'bg-stone-900/90 border-stone-800' : 'bg-stone-50 border-stone-200'
+              }`}>
+                <div className="w-8 h-8 rounded-xl bg-blue-600/15 border border-blue-500/30 flex items-center justify-center text-base shrink-0">
+                  ♟️
+                </div>
+                <div className="flex-1 space-y-1">
+                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-wider block">코치 총평 및 피드백</span>
+                  <p className="text-xs font-semibold leading-relaxed text-slate-300">
+                    {coachComment}
+                  </p>
+                </div>
+              </div>
+
+              {/* Evaluation Flow AreaChart */}
+              <div className={`rounded-2xl shadow-sm border p-3.5 flex flex-col justify-between ${
                 darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
               }`}>
-                <div className="flex-1 w-full h-full min-h-[120px]">
+                <div className="flex justify-between items-center mb-2 px-1">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">유불리 흐름 (Evaluation Flow)</span>
+                  <span className="text-[10px] font-bold text-slate-400">총 {analysis.moves.length}수</span>
+                </div>
+                <div className="w-full h-28">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <AreaChart 
                       data={analysis.evaluationHistory.map((evalCp, index) => ({
@@ -6422,40 +6520,12 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Big Dual Accuracy Cards (Screenshot 3) */}
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3 text-center">
-                  <div>
-                    <div className="text-xs font-black truncate px-1 mb-1">
-                      {selectedUserGame ? selectedUserGame.white.username : 'White'}
-                    </div>
-                    <div className={`p-4 rounded-2xl border flex flex-col items-center justify-center shadow-sm ${
-                      darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
-                    }`}>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">정확도</span>
-                      <span className="text-3xl font-black text-slate-100">{analysis.whiteAccuracy}</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-xs font-black truncate px-1 mb-1">
-                      {selectedUserGame ? selectedUserGame.black.username : 'Black'}
-                    </div>
-                    <div className={`p-4 rounded-2xl border flex flex-col items-center justify-center shadow-sm ${
-                      darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
-                    }`}>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">정확도</span>
-                      <span className="text-3xl font-black text-slate-100">{analysis.blackAccuracy}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Classification Summary Table (Screenshot 3) */}
-              <div className={`rounded-2xl shadow-sm border p-4 space-y-3 ${
+              {/* Classification Summary Table */}
+              <div className={`rounded-2xl shadow-sm border p-3.5 space-y-2.5 ${
                 darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
               }`}>
-                <div className="space-y-2">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block px-1">수 분류별 통계</span>
+                <div className="space-y-1.5">
                   {[
                     { label: '탁월합니다', key: 'Brilliant', symbol: '!!', color: 'text-cyan-400' },
                     { label: '매우 좋아요', key: 'Great', symbol: '!', color: 'text-sky-400' },
@@ -6468,45 +6538,47 @@ export default function Home() {
                     { label: '블런더', key: 'Blunder', symbol: '??', color: 'text-red-500 font-bold' },
                   ].map((stat) => (
                     <div key={stat.key} className="grid grid-cols-3 text-center items-center text-xs py-0.5">
-                      <div className="font-black text-left">{analysis.classificationTally.white[stat.key]}</div>
+                      <div className="font-black text-left pl-2">{analysis.classificationTally.white[stat.key]}</div>
                       <div className="flex items-center justify-center gap-1.5 font-bold">
                         <span className={`text-[10px] font-black ${stat.color}`}>{stat.symbol}</span>
                         <span className={darkMode === 'dark' ? 'text-slate-300' : 'text-slate-700'}>{stat.label}</span>
                       </div>
-                      <div className="font-black text-right">{analysis.classificationTally.black[stat.key]}</div>
+                      <div className="font-black text-right pr-2">{analysis.classificationTally.black[stat.key]}</div>
                     </div>
                   ))}
                 </div>
               </div>
             </main>
 
-            {/* Prominent Green "리뷰 시작" Button (Screenshot 3) */}
+            {/* Action Bar (Direct to Full Analysis Board & Review) */}
             <div className={`p-4 border-t space-y-2 shrink-0 ${
               darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
             }`}>
               <button 
-                onClick={startReview}
-                className="w-full bg-lime-600 hover:bg-lime-500 text-white font-black py-4 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 text-base active:scale-98 cursor-pointer"
+                onClick={() => exportReviewToAnalyze(0)}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 text-sm active:scale-98 cursor-pointer"
               >
-                {language === 'ko' ? '리뷰 시작' : 'Start Review'}
+                <GitBranch size={16} />
+                <span>{language === 'ko' ? '자유 분석판에서 정밀 분석 (오프닝 트리 & 엔진)' : 'Open Full Analysis Board'}</span>
               </button>
               
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="grid grid-cols-2 gap-2">
                 <button 
-                  onClick={exportReviewToAnalyze}
-                  className={`font-bold py-3 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1.5 text-xs active:scale-95 cursor-pointer ${
+                  onClick={startReview}
+                  className={`font-bold py-2.5 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1.5 text-xs active:scale-95 cursor-pointer ${
                     darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-stone-100 hover:bg-stone-200 border-stone-250 text-slate-800'
                   }`}
                 >
-                  <GitBranch size={15} /> {language === 'ko' ? '자유 분석판' : 'Analyze'}
+                  <Play size={14} /> {language === 'ko' ? '수순 감상' : 'Watch Moves'}
                 </button>
                 <button 
-                  onClick={() => setIsShareModalOpen(true)}
-                  className={`font-bold py-3 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1.5 text-xs active:scale-95 cursor-pointer ${
+                  onClick={handleDownloadGif}
+                  disabled={isExportingGif}
+                  className={`font-bold py-2.5 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1.5 text-xs active:scale-95 cursor-pointer ${
                     darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-stone-100 hover:bg-stone-200 border-stone-250 text-slate-800'
                   }`}
                 >
-                  <Share2 size={15} /> {language === 'ko' ? '게임 공유하기' : 'Share'}
+                  <Download size={14} /> {isExportingGif ? 'GIF 생성...' : (language === 'ko' ? 'GIF 다운로드' : 'Download GIF')}
                 </button>
               </div>
             </div>

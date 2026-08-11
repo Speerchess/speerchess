@@ -82,7 +82,7 @@ async function loadLogo(): Promise<HTMLImageElement | null> {
 
 export async function generateGifClient(
   pgn: string,
-  analysis: GameAnalysis,
+  analysis?: GameAnalysis | null,
   options?: {
     darkColor?: string;
     lightColor?: string;
@@ -261,7 +261,7 @@ export async function generateGifClient(
     const move = history[i];
     replayChess.move(move);
     
-    const moveAnalysis = analysis.moves[i];
+    const moveAnalysis = analysis?.moves ? analysis.moves[i] : undefined;
     
     let delay = 1000;
     if (moveAnalysis && (moveAnalysis.classification === 'Brilliant' || moveAnalysis.classification === 'Blunder')) {
