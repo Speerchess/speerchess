@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLinkedAccounts, getUserTier, saveOpeningTree, getOpeningTreeRecord, UserTier } from '../../../lib/db';
 import { buildOpeningTreeFromGames, queryOpeningTree, GameInputForTree, CompactOpeningTree } from '../../../lib/openingTree';
+import { verifyAndExtractSession } from '../../../lib/session';
 
 export const runtime = 'edge';
 
-function getSessionUserId(request: NextRequest): string | null {
+async function getSessionUserId(request: NextRequest): Promise<string | null> {
   const rawCookie = request.cookies.get('speerchess_session')?.value;
-  if (!rawCookie) return null;
-  try {
-    if (rawCookie.startsWith('{')) {
-      return JSON.parse(rawCookie).id;
-    } else {
-      return JSON.parse(decodeURIComponent(atob(rawCookie))).id;
-    }
-  } catch (e) {
-    return rawCookie;
-  }
+  const session = await verifyAndExtractSession(rawCookie);
+  return session ? session.id : null;
 }
 
 // Helper to check sync cooldown
@@ -52,7 +45,7 @@ function checkSyncCooldown(tier: UserTier, lastUpdatedAt?: string): { allowed: b
 // GET /api/opening-tree - Query opening tree for a specific FEN and color
 export async function GET(request: NextRequest) {
   try {
-    const sessionUserId = getSessionUserId(request);
+    const sessionUserId = await getSessionUserId(request);
     if (!sessionUserId) {
       return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }
@@ -108,7 +101,7 @@ export async function GET(request: NextRequest) {
 // POST /api/opening-tree - Accepts client-compiled Opening Tree or server fallback with Cooldown checks
 export async function POST(request: NextRequest) {
   try {
-    const sessionUserId = getSessionUserId(request);
+    const sessionUserId = await getSessionUserId(request);
     if (!sessionUserId) {
       return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }

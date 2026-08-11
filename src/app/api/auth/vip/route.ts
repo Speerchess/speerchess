@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setUserTier, getUserTier, UserTier } from '../../../../lib/db';
+import { verifyAndExtractSession } from '../../../../lib/session';
 
 export const runtime = 'edge';
 
@@ -21,24 +22,16 @@ const DEFAULT_VVIP_KEYS = [
   'JUSTDOIT-VVIP'
 ];
 
-function getSessionUserId(request: NextRequest): string | null {
+async function getSessionUserId(request: NextRequest): Promise<string | null> {
   const rawCookie = request.cookies.get('speerchess_session')?.value;
-  if (!rawCookie) return null;
-  try {
-    if (rawCookie.startsWith('{')) {
-      return JSON.parse(rawCookie).id;
-    } else {
-      return JSON.parse(decodeURIComponent(atob(rawCookie))).id;
-    }
-  } catch (e) {
-    return rawCookie;
-  }
+  const session = await verifyAndExtractSession(rawCookie);
+  return session ? session.id : null;
 }
 
 // GET /api/auth/vip - Check VIP/VVIP status & cooldown specs
 export async function GET(request: NextRequest) {
   try {
-    const sessionUserId = getSessionUserId(request);
+    const sessionUserId = await getSessionUserId(request);
     if (!sessionUserId) {
       return NextResponse.json({ authenticated: false, tier: 'free', isVip: false });
     }
@@ -62,7 +55,7 @@ export async function GET(request: NextRequest) {
 // POST /api/auth/vip - Activate VIP or VVIP Key
 export async function POST(request: NextRequest) {
   try {
-    const sessionUserId = getSessionUserId(request);
+    const sessionUserId = await getSessionUserId(request);
     if (!sessionUserId) {
       return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }

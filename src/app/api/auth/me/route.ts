@@ -1,26 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUser, getLinkedAccounts } from '../../../../lib/db';
+import { verifyAndExtractSession } from '../../../../lib/session';
 
 export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
   try {
     const rawCookie = request.cookies.get('speerchess_session')?.value;
-    if (!rawCookie) {
-      return NextResponse.json({ authenticated: false, user: null, linkedAccounts: [] });
-    }
-
-    let sessionData: { id: string; username: string; avatar_url?: string | null; access_token?: string } | null = null;
-    
-    try {
-      if (rawCookie.startsWith('{')) {
-        sessionData = JSON.parse(rawCookie);
-      } else {
-        sessionData = JSON.parse(decodeURIComponent(atob(rawCookie)));
-      }
-    } catch (parseErr) {
-      sessionData = { id: rawCookie, username: rawCookie };
-    }
+    const sessionData = await verifyAndExtractSession(rawCookie);
 
     if (!sessionData || !sessionData.id) {
       return NextResponse.json({ authenticated: false, user: null, linkedAccounts: [] });

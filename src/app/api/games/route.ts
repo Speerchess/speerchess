@@ -25,9 +25,21 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { pgn, analysisJson, movesSequence } = await request.json();
+    const body = await request.json();
+    const { pgn, analysisJson, movesSequence } = body || {};
     if (!pgn || !analysisJson || !movesSequence) {
       return NextResponse.json({ error: '필수 데이터가 누락되었습니다.' }, { status: 400 });
+    }
+
+    // Security bounds check (prevent oversized payloads / DoS)
+    if (typeof pgn !== 'string' || pgn.length > 250000) {
+      return NextResponse.json({ error: 'PGN 데이터 크기가 허용치를 초과했습니다.' }, { status: 400 });
+    }
+    if (typeof analysisJson !== 'string' || analysisJson.length > 3000000) {
+      return NextResponse.json({ error: '분석 데이터 크기가 허용치를 초과했습니다.' }, { status: 400 });
+    }
+    if (typeof movesSequence !== 'string' || movesSequence.length > 50000) {
+      return NextResponse.json({ error: '수순 데이터 크기가 허용치를 초과했습니다.' }, { status: 400 });
     }
 
     const salt = process.env.HASHIDS_SALT || 'speerchess-salt-secret';

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { upsertUser } from '../../../../../lib/db';
+import { signSessionPayload } from '../../../../../lib/session';
 
 export const runtime = 'edge';
 
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest) {
       console.warn("D1 upsertUser skipped or failed:", dbErr);
     }
 
-    // 4. Create response and set persistent session cookie containing full session payload
+    // 4. Create response and set cryptographically signed session cookie
     const sessionPayload = {
       id: userId,
       username: username,
@@ -90,12 +91,11 @@ export async function GET(request: NextRequest) {
       access_token: accessToken
     };
     
-    // Base64 encode session payload for robust HTTP transmission
-    const sessionCookieValue = btoa(encodeURIComponent(JSON.stringify(sessionPayload)));
+    const sessionCookieValue = await signSessionPayload(sessionPayload);
 
     const response = NextResponse.redirect(`${origin}/?auth_success=1`);
     
-    // Set session cookie
+    // Set secure signed session cookie
     response.cookies.set('speerchess_session', sessionCookieValue, {
       path: '/',
       httpOnly: true,
