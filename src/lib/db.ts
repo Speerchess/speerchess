@@ -212,7 +212,7 @@ interface RuntimeMemoryStore {
   users: Record<string, UserRecord>;
   linkedAccounts: LinkedAccountRecord[];
   openingTrees: Record<string, OpeningTreeRecord>;
-  vipUsers: Record<string, { isVip: boolean; vipKey: string }>;
+  vipUsers: Record<string, { isVip: boolean | number; tier?: UserTier; vipKey?: string }>;
 }
 
 const memoryStore: RuntimeMemoryStore = {
