@@ -671,14 +671,9 @@ export default function Home() {
     setLoadingUserGames(true);
     setVisibleGamesCount(30);
     try {
-      let targets = accountsToFetch;
-      if (filter !== 'ALL') {
-        const [fPlatform, fUser] = filter.split(':');
-        targets = accountsToFetch.filter(a => a.platform === fPlatform && a.platform_username.toLowerCase() === fUser.toLowerCase());
-      }
-
-      const promises = targets.map(acc => 
-        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=100`)
+      // Always fetch full game archives (up to 500 per account) for seamless instant tab filtering
+      const promises = accountsToFetch.map(acc => 
+        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=500`)
           .then(res => res.ok ? res.json() : { games: [] })
           .then(d => (d.games || []) as UserGameItem[])
           .catch(() => [] as UserGameItem[])
@@ -697,6 +692,19 @@ export default function Home() {
       setLoadingUserGames(false);
     }
   };
+
+  // Strictly filtered games by selected account tab to eliminate any cross-platform leakage
+  const displayedGames = useMemo(() => {
+    if (selectedAccountFilter === 'ALL') return userGames;
+    const [fPlatform, fUser] = selectedAccountFilter.split(':');
+    const lowerFUser = (fUser || '').toLowerCase().trim();
+    return userGames.filter(g => {
+      if (g.platform !== fPlatform) return false;
+      const isWhite = (g.white?.username || '').toLowerCase() === lowerFUser;
+      const isBlack = (g.black?.username || '').toLowerCase() === lowerFUser;
+      return isWhite || isBlack || !lowerFUser;
+    });
+  }, [userGames, selectedAccountFilter]);
 
   const handleAddLinkedAccount = async (platform: 'lichess' | 'chesscom', username: string) => {
     const trimmed = username.trim();
@@ -6078,7 +6086,7 @@ export default function Home() {
                   <button 
                     onClick={() => {
                       setSelectedAccountFilter('ALL');
-                      fetchMultiAccountGames(linkedAccounts, 'ALL');
+                      setVisibleGamesCount(30);
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
                       selectedAccountFilter === 'ALL'
@@ -6093,12 +6101,18 @@ export default function Home() {
                   {linkedAccounts.map(acc => {
                     const filterKey = `${acc.platform}:${acc.platform_username}`;
                     const isSelected = selectedAccountFilter === filterKey;
+                    const lowerUser = acc.platform_username.toLowerCase();
+                    const accCount = userGames.filter(g => 
+                      g.platform === acc.platform && 
+                      ((g.white?.username || '').toLowerCase() === lowerUser || (g.black?.username || '').toLowerCase() === lowerUser)
+                    ).length;
+
                     return (
                       <button 
                         key={`${acc.platform}-${acc.platform_username}`}
                         onClick={() => {
                           setSelectedAccountFilter(filterKey);
-                          fetchMultiAccountGames(linkedAccounts, filterKey);
+                          setVisibleGamesCount(30);
                         }}
                         className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
                           isSelected
@@ -6108,6 +6122,7 @@ export default function Home() {
                       >
                         <span>{acc.platform === 'lichess' ? '⚡' : '♟️'}</span>
                         <span>{acc.platform_username}</span>
+                        <span className="text-[10px] opacity-80">({accCount})</span>
                         {acc.is_primary && <span className="text-[9px] opacity-70">🛡️</span>}
                       </button>
                     );
@@ -6121,13 +6136,15 @@ export default function Home() {
                       <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
                       <span className="text-xs font-bold text-slate-400">경기 목록을 불러오는 중...</span>
                     </div>
-                  ) : userGames.length === 0 ? (
+                  ) : displayedGames.length === 0 ? (
                     <div className="text-center py-16 text-slate-400 font-bold text-xs">
-                      최근 진행된 경기 기록이 없습니다.
+                      {selectedAccountFilter === 'ALL' 
+                        ? '최근 진행된 경기 기록이 없습니다.' 
+                        : '선택한 계정의 대국 기록이 없습니다.'}
                     </div>
                   ) : (
                     <>
-                      {userGames.slice(0, visibleGamesCount).map((g) => {
+                      {displayedGames.slice(0, visibleGamesCount).map((g) => {
                         const opponent = g.userColor === 'white' ? g.black : g.white;
                         const reviewed = reviewedAccuracies[g.id];
                         
@@ -6197,7 +6214,7 @@ export default function Home() {
                       })}
 
                       {/* Pagination Load More Button */}
-                      {userGames.length > visibleGamesCount && (
+                      {displayedGames.length > visibleGamesCount && (
                         <div className="pt-2 pb-4 text-center">
                           <button
                             onClick={() => setVisibleGamesCount(prev => prev + 30)}
@@ -6206,7 +6223,7 @@ export default function Home() {
                             }`}
                           >
                             <span>➕ {language === 'ko' ? '대국 30개 더 불러오기' : 'Load 30 More Games'}</span>
-                            <span className="text-[10px] text-slate-400">({Math.min(userGames.length, visibleGamesCount)} / {userGames.length})</span>
+                            <span className="text-[10px] text-slate-400">({Math.min(displayedGames.length, visibleGamesCount)} / {displayedGames.length})</span>
                           </button>
                         </div>
                       )}

@@ -32,9 +32,13 @@ export interface UserGameItem {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const platform = searchParams.get('platform') || 'lichess';
+    const rawPlatform = (searchParams.get('platform') || 'lichess').toLowerCase().replace(/[\.\_\-\s]/g, '');
+    const isChessCom = rawPlatform.includes('chess') || rawPlatform === 'chesscom';
+    const platform = isChessCom ? 'chesscom' : 'lichess';
+
     const username = searchParams.get('username')?.trim();
-    const max = parseInt(searchParams.get('max') || '25', 10);
+    const maxParam = parseInt(searchParams.get('max') || '500', 10);
+    const max = isNaN(maxParam) || maxParam <= 0 ? 500 : Math.min(maxParam, 2000);
 
     if (!username) {
       return NextResponse.json({ error: 'Username is required' }, { status: 400 });
@@ -42,10 +46,8 @@ export async function GET(req: NextRequest) {
 
     if (platform === 'lichess') {
       return await fetchLichessGames(username, max);
-    } else if (platform === 'chesscom') {
-      return await fetchChessComGames(username, max);
     } else {
-      return NextResponse.json({ error: 'Unsupported platform' }, { status: 400 });
+      return await fetchChessComGames(username, max);
     }
   } catch (error: any) {
     console.error('Failed to fetch user games:', error);
@@ -157,7 +159,8 @@ async function fetchLichessGames(username: string, max: number) {
 }
 
 async function fetchChessComGames(username: string, max: number) {
-  const archivesUrl = `https://api.chess.com/pub/player/${encodeURIComponent(username.toLowerCase())}/games/archives`;
+  const cleanUsername = username.toLowerCase().trim();
+  const archivesUrl = `https://api.chess.com/pub/player/${encodeURIComponent(cleanUsername)}/games/archives`;
   
   const archivesRes = await fetch(archivesUrl, {
     headers: {
@@ -184,9 +187,8 @@ async function fetchChessComGames(username: string, max: number) {
     });
   }
 
-  // Fetch games from the latest archive (and previous month if needed to fill max)
+  // Fetch games from monthly archives backwards until max games reached
   const games: UserGameItem[] = [];
-  const lowerUser = username.toLowerCase();
 
   for (let i = archives.length - 1; i >= 0 && games.length < max; i--) {
     const monthUrl = archives[i];
@@ -202,7 +204,7 @@ async function fetchChessComGames(username: string, max: number) {
 
       for (const g of rawGames) {
         if (games.length >= max) break;
-        const isWhite = (g.white?.username || '').toLowerCase() === lowerUser;
+        const isWhite = (g.white?.username || '').toLowerCase() === cleanUsername;
         const userColor: 'white' | 'black' = isWhite ? 'white' : 'black';
 
         const whiteResult = g.white?.result || '';
