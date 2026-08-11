@@ -385,6 +385,10 @@ export default function Home() {
   const [inputChessComUser, setInputChessComUser] = useState<string>('');
   const [isConnectingAccount, setIsConnectingAccount] = useState<boolean>(false);
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; stage: string } | null>(null);
+  const [userTier, setUserTier] = useState<'free' | 'vip' | 'vvip'>('free');
+  const [syncCooldownRemainingHours, setSyncCooldownRemainingHours] = useState<number>(0);
+  const [canSyncTree, setCanSyncTree] = useState<boolean>(true);
+  const [visibleGamesCount, setVisibleGamesCount] = useState<number>(30);
   
   // Selected Game View (Chess.com-style preview before full review)
   const [selectedUserGame, setSelectedUserGame] = useState<UserGameItem | null>(null);
@@ -412,11 +416,17 @@ export default function Home() {
           setLinkedAccounts(accountsList);
           fetchMultiAccountGames(accountsList, 'ALL');
 
-          // Check VIP status
+          // Check VIP status & tier
           fetch('/api/auth/vip')
             .then(r => r.json())
             .then(vData => {
-              if (vData.isVip) setIsVip(true);
+              if (vData.tier) {
+                setUserTier(vData.tier);
+                setIsVip(vData.tier !== 'free');
+              } else if (vData.isVip) {
+                setUserTier('vip');
+                setIsVip(true);
+              }
             })
             .catch(() => {});
         } else {
@@ -475,8 +485,8 @@ export default function Home() {
     }
 
     setIsSyncingTree(true);
-    const targetMax = isVip ? 5000 : 1000;
-    const targetPly = isVip ? 60 : 30;
+    const targetMax = userTier === 'vvip' ? 10000 : (userTier === 'vip' || isVip ? 5000 : 1000);
+    const targetPly = userTier === 'vvip' ? 120 : (userTier === 'vip' || isVip ? 60 : 30);
 
     setSyncProgress({ current: 0, total: targetMax, stage: language === 'ko' ? '대국 기록 수집 준비 중...' : 'Preparing...' });
 
@@ -607,6 +617,10 @@ export default function Home() {
           setPlayerTreeData(qData);
         }
       } else {
+        if (saveRes.status === 429) {
+          setCanSyncTree(false);
+          setSyncCooldownRemainingHours(saveData.remainingHours || 0);
+        }
         alert(saveData.error || (language === 'ko' ? '저장에 실패했습니다.' : 'Failed to save.'));
       }
     } catch (e: any) {
@@ -630,10 +644,11 @@ export default function Home() {
       const data = await res.json();
       if (res.ok && data.success) {
         setIsVip(true);
-        alert(data.message || (language === 'ko' ? '✨ VIP 라이선스가 활성화되었습니다!' : 'VIP License Activated!'));
+        if (data.tier) setUserTier(data.tier);
+        alert(data.message || (language === 'ko' ? '✨ 라이선스가 활성화되었습니다!' : 'License Activated!'));
         setVipKeyInput('');
       } else {
-        alert(data.error || (language === 'ko' ? '유효하지 않은 키입니다.' : 'Invalid VIP key.'));
+        alert(data.error || (language === 'ko' ? '유효하지 않은 키입니다.' : 'Invalid key.'));
       }
     } catch (e) {
       alert(language === 'ko' ? '오류가 발생했습니다.' : 'An error occurred.');
@@ -648,6 +663,7 @@ export default function Home() {
       return;
     }
     setLoadingUserGames(true);
+    setVisibleGamesCount(30);
     try {
       let targets = accountsToFetch;
       if (filter !== 'ALL') {
@@ -656,7 +672,7 @@ export default function Home() {
       }
 
       const promises = targets.map(acc => 
-        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=30`)
+        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=100`)
           .then(res => res.ok ? res.json() : { games: [] })
           .then(d => (d.games || []) as UserGameItem[])
           .catch(() => [] as UserGameItem[])
@@ -2884,11 +2900,26 @@ export default function Home() {
     if (!analysis) return;
     setIsExportingGif(true);
     try {
-      const themeColors = boardThemes[boardTheme];
+      // Determine orientation based on user played color
+      let orientation: 'white' | 'black' = gifOrientation;
+      if (selectedUserGame?.userColor) {
+        orientation = selectedUserGame.userColor;
+      } else if (currentUser) {
+        const whiteUser = pgn.match(/\[White\s+"([^"]+)"\]/i)?.[1]?.toLowerCase();
+        const blackUser = pgn.match(/\[Black\s+"([^"]+)"\]/i)?.[1]?.toLowerCase();
+        const myName = currentUser.username.toLowerCase();
+        if (blackUser === myName && whiteUser !== myName) {
+          orientation = 'black';
+        } else if (whiteUser === myName) {
+          orientation = 'white';
+        }
+      }
+
+      const themeColors = boardThemes[boardTheme] || boardThemes.slate;
       const gifBlob = await generateGifClient(pgn, analysis, {
         darkColor: themeColors.dark,
         lightColor: themeColors.light,
-        orientation: gifOrientation,
+        orientation: orientation,
         annotationMode: gifAnnotationMode,
         showPlayerNames: gifShowNames,
         onProgress: () => {}
@@ -2896,7 +2927,7 @@ export default function Home() {
       const gifUrl = URL.createObjectURL(gifBlob);
       const a = document.createElement('a');
       a.href = gifUrl;
-      a.download = 'speerchess-review.gif';
+      a.download = `speerchess-${Date.now()}.gif`;
       a.click();
     } catch (e) {
       alert("GIF 생성에 실패했습니다.");
@@ -5549,7 +5580,7 @@ export default function Home() {
                           <div className="space-y-1">
                             <h4 className="font-extrabold text-xs">내 전적 오프닝 트리 생성</h4>
                             <p className="text-[10px] text-slate-400 font-medium">
-                              연동된 계정의 최근 {isVip ? '5,000' : '1,000'}판을 분석하여 나만의 통계 트리를 구축합니다.
+                              연동된 계정의 최근 {userTier === 'vvip' ? '10,000' : (userTier === 'vip' || isVip ? '5,000' : '1,000')}판을 분석하여 나만의 통계 트리를 구축합니다.
                             </p>
                           </div>
                           <button 
@@ -5563,7 +5594,7 @@ export default function Home() {
                                 <span>{syncProgress?.stage || '분석 및 트리 생성 중...'}</span>
                               </>
                             ) : (
-                              <span>📥 오프닝 데이터 동기화 ({isVip ? '5,000판' : '1,000판'})</span>
+                              <span>📥 오프닝 데이터 동기화 ({userTier === 'vvip' ? '10,000판' : (userTier === 'vip' || isVip ? '5,000판' : '1,000판')})</span>
                             )}
                           </button>
                         </div>
@@ -6062,74 +6093,91 @@ export default function Home() {
                       최근 진행된 경기 기록이 없습니다.
                     </div>
                   ) : (
-                    userGames.map((g) => {
-                      const opponent = g.userColor === 'white' ? g.black : g.white;
-                      const reviewed = reviewedAccuracies[g.id];
-                      
-                      return (
-                        <div 
-                          key={g.id}
-                          onClick={() => openUserGame(g)}
-                          className={`p-3 rounded-2xl border flex items-center justify-between shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-98 ${
-                            darkMode === 'dark' ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
-                          }`}
-                        >
-                          {/* Left: Mode Icon + Opponent Avatar & Name */}
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="text-lg shrink-0">
-                              {g.timeClass === 'bullet' ? '🚅' :
-                               g.timeClass === 'blitz' ? <span className="text-amber-400 font-black">⚡</span> :
-                               g.timeClass === 'rapid' ? <span className="text-emerald-500 font-black">⏱️</span> : '♟️'}
-                            </div>
-                            <div className="w-8 h-8 rounded-xl bg-stone-700/30 border border-stone-600/30 flex items-center justify-center font-black text-xs shrink-0">
-                              {opponent.username.slice(0, 1).toUpperCase()}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-extrabold text-xs truncate max-w-[120px]">{opponent.username}</span>
-                                <span className="text-[10px] text-slate-400 font-bold">({opponent.rating})</span>
-                                <span className={`text-[9px] font-bold px-1 rounded ${
-                                  g.platform === 'lichess' ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400'
-                                }`}>
-                                  {g.platform === 'lichess' ? 'Lichess' : 'Chess.com'}
-                                </span>
+                    <>
+                      {userGames.slice(0, visibleGamesCount).map((g) => {
+                        const opponent = g.userColor === 'white' ? g.black : g.white;
+                        const reviewed = reviewedAccuracies[g.id];
+                        
+                        return (
+                          <div 
+                            key={g.id}
+                            onClick={() => openUserGame(g)}
+                            className={`p-3 rounded-2xl border flex items-center justify-between shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-98 ${
+                              darkMode === 'dark' ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+                            }`}
+                          >
+                            {/* Left: Mode Icon + Opponent Avatar & Name */}
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="text-lg shrink-0">
+                                {g.timeClass === 'bullet' ? '🚅' :
+                                 g.timeClass === 'blitz' ? <span className="text-amber-400 font-black">⚡</span> :
+                                 g.timeClass === 'rapid' ? <span className="text-emerald-500 font-black">⏱️</span> : '♟️'}
                               </div>
-                              <div className="text-[9px] text-slate-500 font-bold">
-                                {g.timeControl || g.timeClass} • {new Date(g.date).toLocaleDateString()}
+                              <div className="w-8 h-8 rounded-xl bg-stone-700/30 border border-stone-600/30 flex items-center justify-center font-black text-xs shrink-0">
+                                {opponent.username.slice(0, 1).toUpperCase()}
                               </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-extrabold text-xs truncate max-w-[120px]">{opponent.username}</span>
+                                  <span className="text-[10px] text-slate-400 font-bold">({opponent.rating})</span>
+                                  <span className={`text-[9px] font-bold px-1 rounded ${
+                                    g.platform === 'lichess' ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400'
+                                  }`}>
+                                    {g.platform === 'lichess' ? 'Lichess' : 'Chess.com'}
+                                  </span>
+                                </div>
+                                <div className="text-[9px] text-slate-500 font-bold">
+                                  {g.timeControl || g.timeClass} • {new Date(g.date).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right: Result Badge + Review Button or Accuracy */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={`w-5 h-5 rounded-md flex items-center justify-center font-black text-xs ${
+                                g.userResult === 'win' ? 'bg-emerald-600 text-white' :
+                                g.userResult === 'loss' ? 'bg-red-600 text-white' :
+                                'bg-stone-600 text-slate-200'
+                              }`}>
+                                {g.userResult === 'win' ? '+' : g.userResult === 'loss' ? '-' : '='}
+                              </span>
+
+                              {reviewed ? (
+                                <div className="px-2 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 font-black text-xs text-center min-w-[50px]">
+                                  {reviewed.userAccuracy.toFixed(1)}%
+                                </div>
+                              ) : (
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openUserGame(g);
+                                  }}
+                                  className="w-8 h-8 rounded-xl bg-lime-600 hover:bg-lime-500 text-white flex items-center justify-center shadow-md cursor-pointer transition-all active:scale-90"
+                                  title="리뷰 시작"
+                                >
+                                  <Star size={16} fill="currentColor" />
+                                </button>
+                              )}
                             </div>
                           </div>
+                        );
+                      })}
 
-                          {/* Right: Result Badge + Review Button or Accuracy */}
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`w-5 h-5 rounded-md flex items-center justify-center font-black text-xs ${
-                              g.userResult === 'win' ? 'bg-emerald-600 text-white' :
-                              g.userResult === 'loss' ? 'bg-red-600 text-white' :
-                              'bg-stone-600 text-slate-200'
-                            }`}>
-                              {g.userResult === 'win' ? '+' : g.userResult === 'loss' ? '-' : '='}
-                            </span>
-
-                            {reviewed ? (
-                              <div className="px-2 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 font-black text-xs text-center min-w-[50px]">
-                                {reviewed.userAccuracy.toFixed(1)}%
-                              </div>
-                            ) : (
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openUserGame(g);
-                                }}
-                                className="w-8 h-8 rounded-xl bg-lime-600 hover:bg-lime-500 text-white flex items-center justify-center shadow-md cursor-pointer transition-all active:scale-90"
-                                title="리뷰 시작"
-                              >
-                                <Star size={16} fill="currentColor" />
-                              </button>
-                            )}
-                          </div>
+                      {/* Pagination Load More Button */}
+                      {userGames.length > visibleGamesCount && (
+                        <div className="pt-2 pb-4 text-center">
+                          <button
+                            onClick={() => setVisibleGamesCount(prev => prev + 30)}
+                            className={`w-full py-3 rounded-2xl border font-black text-xs transition-all shadow-sm active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 ${
+                              darkMode === 'dark' ? 'bg-stone-900 hover:bg-stone-850 border-stone-800 text-blue-400' : 'bg-white hover:bg-stone-50 border-stone-200 text-blue-600'
+                            }`}
+                          >
+                            <span>➕ {language === 'ko' ? '대국 30개 더 불러오기' : 'Load 30 More Games'}</span>
+                            <span className="text-[10px] text-slate-400">({Math.min(userGames.length, visibleGamesCount)} / {userGames.length})</span>
+                          </button>
                         </div>
-                      );
-                    })
+                      )}
+                    </>
                   )}
                 </div>
               </>
@@ -6314,6 +6362,7 @@ export default function Home() {
               <button 
                 onClick={() => {
                   loadPgnToAnalyze(selectedUserGame.pgn);
+                  setView('INPUT');
                   setActiveTab('analyze');
                 }}
                 className="flex flex-col items-center justify-center h-full flex-1 cursor-pointer hover:text-white transition-colors"
@@ -6448,17 +6497,23 @@ export default function Home() {
             </header>
 
             <main className="p-4 space-y-3.5 flex-1">
-              {/* Dual Player Accuracies Card */}
+              {/* Dual Player Accuracies & Performance Rating Cards */}
               <div className="grid grid-cols-2 gap-3">
                 <div className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center relative shadow-sm ${
                   darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
                 }`}>
                   <div className="flex items-center gap-1 mb-1 max-w-full px-1">
                     <span className="w-2.5 h-2.5 rounded-full bg-white border border-stone-400 shrink-0" />
-                    <span className="text-xs font-black truncate">{selectedUserGame ? selectedUserGame.white.username : 'White'}</span>
+                    <span className="text-xs font-black truncate">
+                      {selectedUserGame ? selectedUserGame.white.username : (analysis.whiteElo ? `White (${analysis.whiteElo})` : 'White')}
+                    </span>
                   </div>
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-0.5">정확도</span>
                   <span className="text-3xl font-black text-blue-500">{analysis.whiteAccuracy}%</span>
+                  <div className="mt-2 px-2.5 py-1 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 font-extrabold text-[11px] flex items-center gap-1">
+                    <span>🎯 퍼포먼스:</span>
+                    <span>{analysis.whitePerformance || 1500}</span>
+                  </div>
                 </div>
 
                 <div className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center relative shadow-sm ${
@@ -6466,10 +6521,16 @@ export default function Home() {
                 }`}>
                   <div className="flex items-center gap-1 mb-1 max-w-full px-1">
                     <span className="w-2.5 h-2.5 rounded-full bg-stone-900 border border-stone-600 shrink-0" />
-                    <span className="text-xs font-black truncate">{selectedUserGame ? selectedUserGame.black.username : 'Black'}</span>
+                    <span className="text-xs font-black truncate">
+                      {selectedUserGame ? selectedUserGame.black.username : (analysis.blackElo ? `Black (${analysis.blackElo})` : 'Black')}
+                    </span>
                   </div>
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-0.5">정확도</span>
                   <span className="text-3xl font-black text-emerald-500">{analysis.blackAccuracy}%</span>
+                  <div className="mt-2 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-extrabold text-[11px] flex items-center gap-1">
+                    <span>🎯 퍼포먼스:</span>
+                    <span>{analysis.blackPerformance || 1500}</span>
+                  </div>
                 </div>
               </div>
 
@@ -6550,7 +6611,7 @@ export default function Home() {
               </div>
             </main>
 
-            {/* Action Bar (Direct to Full Analysis Board & Review) */}
+            {/* Action Bar (Direct to Full Analysis Board & Utilities) */}
             <div className={`p-4 border-t space-y-2 shrink-0 ${
               darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
             }`}>
@@ -6562,23 +6623,35 @@ export default function Home() {
                 <span>{language === 'ko' ? '자유 분석판에서 정밀 분석 (오프닝 트리 & 엔진)' : 'Open Full Analysis Board'}</span>
               </button>
               
-              <div className="grid grid-cols-2 gap-2">
-                <button 
-                  onClick={startReview}
-                  className={`font-bold py-2.5 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1.5 text-xs active:scale-95 cursor-pointer ${
-                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-stone-100 hover:bg-stone-200 border-stone-250 text-slate-800'
-                  }`}
-                >
-                  <Play size={14} /> {language === 'ko' ? '수순 감상' : 'Watch Moves'}
-                </button>
+              <div className="grid grid-cols-3 gap-2">
                 <button 
                   onClick={handleDownloadGif}
                   disabled={isExportingGif}
-                  className={`font-bold py-2.5 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1.5 text-xs active:scale-95 cursor-pointer ${
+                  className={`font-bold py-2.5 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1 text-xs active:scale-95 cursor-pointer ${
                     darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-stone-100 hover:bg-stone-200 border-stone-250 text-slate-800'
                   }`}
                 >
-                  <Download size={14} /> {isExportingGif ? 'GIF 생성...' : (language === 'ko' ? 'GIF 다운로드' : 'Download GIF')}
+                  <Download size={13} /> {isExportingGif ? '생성...' : 'GIF'}
+                </button>
+                <button 
+                  onClick={() => {
+                    const currentPgn = generateCurrentPgn();
+                    navigator.clipboard.writeText(currentPgn);
+                    alert(language === 'ko' ? 'PGN 기보가 클립보드에 복사되었습니다!' : 'PGN copied to clipboard!');
+                  }}
+                  className={`font-bold py-2.5 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1 text-xs active:scale-95 cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-stone-100 hover:bg-stone-200 border-stone-250 text-slate-800'
+                  }`}
+                >
+                  <BookOpen size={13} /> PGN
+                </button>
+                <button 
+                  onClick={() => setIsShareModalOpen(true)}
+                  className={`font-bold py-2.5 rounded-xl transition-all border shadow-sm flex items-center justify-center gap-1 text-xs active:scale-95 cursor-pointer ${
+                    darkMode === 'dark' ? 'bg-stone-850 hover:bg-stone-800 border-stone-750 text-slate-200' : 'bg-stone-100 hover:bg-stone-200 border-stone-250 text-slate-800'
+                  }`}
+                >
+                  <Share2 size={13} /> {language === 'ko' ? '공유' : 'Share'}
                 </button>
               </div>
             </div>
@@ -8762,12 +8835,12 @@ export default function Home() {
                           <span>{syncProgress?.stage || '전적 분석 및 트리 생성 중...'}</span>
                         </>
                       ) : (
-                        <span>📥 내 전적 {isVip ? '5,000' : '1,000'}판 오프닝 트리 동기화</span>
+                        <span>📥 내 전적 {userTier === 'vvip' ? '10,000' : (userTier === 'vip' || isVip ? '5,000' : '1,000')}판 오프닝 트리 동기화</span>
                       )}
                     </button>
                   </div>
 
-                  {/* Secret VIP Key Input Section */}
+                  {/* Secret VIP / VVIP Key Input Section */}
                   <div className={`p-3 rounded-2xl border space-y-2 ${
                     darkMode === 'dark' ? 'bg-stone-950/60 border-stone-800' : 'bg-stone-50 border-stone-200'
                   }`}>
@@ -8775,19 +8848,25 @@ export default function Home() {
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
                         🔑 스페셜 라이선스 키
                       </span>
-                      {isVip && (
-                        <span className="text-[9px] font-black text-amber-400">✨ 활성화됨</span>
-                      )}
+                      {userTier === 'vvip' ? (
+                        <span className="text-[9px] font-black text-purple-400">👑 VVIP 활성화</span>
+                      ) : (userTier === 'vip' || isVip) ? (
+                        <span className="text-[9px] font-black text-amber-400">✨ VIP 활성화</span>
+                      ) : null}
                     </div>
-                    {isVip ? (
+                    {userTier === 'vvip' ? (
+                      <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 font-bold text-[10px] text-center">
+                        👑 VVIP 마스터 라이선스가 활성화되었습니다 (최대 10,000게임 / 60수 / 무제한 동기화)
+                      </div>
+                    ) : (userTier === 'vip' || isVip) ? (
                       <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold text-[10px] text-center">
-                        ✨ VIP 특수 라이선스가 활성화되었습니다 (최대 5,000게임 / 30수 저장)
+                        ✨ VIP 라이선스가 활성화되었습니다 (최대 5,000게임 / 30수 / 24시간 쿨다운)
                       </div>
                     ) : (
                       <div className="flex gap-2">
                         <input 
                           type="password" 
-                          placeholder="특수키 입력 (VIP 5,000판 해금)..."
+                          placeholder="라이선스 키 입력 (VIP / VVIP 해금)..."
                           value={vipKeyInput}
                           onChange={(e) => setVipKeyInput(e.target.value)}
                           className={`flex-1 p-2 rounded-xl border text-xs font-bold ${
@@ -8905,7 +8984,7 @@ export default function Home() {
           (activeTab === 'home') ||
           (activeTab === 'more' && moreSubView === 'menu') ||
           (activeTab === 'analyze' && analyzeMode === 'landing') ||
-          (activeTab === 'review' && view === 'INPUT') ||
+          (activeTab === 'review' && (view === 'INPUT' || view === 'HISTORY')) ||
           (activeTab === 'chessle' && !chesslePuzzle)
         ) && (
           <nav className={`h-14 border-t flex items-center justify-around shrink-0 z-40 select-none ${

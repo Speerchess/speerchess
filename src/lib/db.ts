@@ -243,7 +243,8 @@ export async function ensureSchema(db: any) {
         username TEXT NOT NULL,
         access_token TEXT,
         avatar_url TEXT,
-        is_vip BOOLEAN DEFAULT 0,
+        role TEXT DEFAULT 'free',
+        is_vip INTEGER DEFAULT 0,
         vip_key TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_login_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -259,7 +260,7 @@ export async function ensureSchema(db: any) {
       );`,
       `CREATE TABLE IF NOT EXISTS user_opening_trees (
         user_id TEXT PRIMARY KEY,
-        is_vip BOOLEAN DEFAULT 0,
+        is_vip INTEGER DEFAULT 0,
         max_ply INTEGER DEFAULT 30,
         total_games INTEGER DEFAULT 0,
         tree_json TEXT NOT NULL,
@@ -270,6 +271,12 @@ export async function ensureSchema(db: any) {
     for (const sql of statements) {
       await db.prepare(sql).run();
     }
+
+    // Try adding role column if old table exists
+    try {
+      await db.prepare("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'free'").run();
+    } catch (e) {}
+
     schemaInitialized = true;
   } catch (e) {
     console.error("Auto ensureSchema error:", e);
@@ -580,10 +587,13 @@ export async function removeLinkedAccount(userId: string, platform: string, plat
   return true;
 }
 
-// 6. User Opening Tree & VIP Helpers
+// 6. User Opening Tree & VIP / VVIP Helpers
+export type UserTier = 'free' | 'vip' | 'vvip';
+
 export interface OpeningTreeRecord {
   user_id: string;
-  is_vip: boolean;
+  is_vip: boolean | number;
+  tier?: UserTier;
   max_ply: number;
   total_games: number;
   tree_json: string;
@@ -592,7 +602,7 @@ export interface OpeningTreeRecord {
 
 export async function saveOpeningTree(
   userId: string,
-  isVip: boolean,
+  tier: UserTier | boolean | number,
   maxPly: number,
   totalGames: number,
   treeJson: string
@@ -600,6 +610,15 @@ export async function saveOpeningTree(
   const db = await getDb();
   const uid = userId.toLowerCase();
   const now = new Date().toISOString();
+  
+  let vipInt = 0;
+  if (typeof tier === 'string') {
+    vipInt = tier === 'vvip' ? 2 : (tier === 'vip' ? 1 : 0);
+  } else if (typeof tier === 'number') {
+    vipInt = tier;
+  } else if (tier === true) {
+    vipInt = 1;
+  }
 
   if (db) {
     try {
@@ -612,7 +631,7 @@ export async function saveOpeningTree(
           total_games = excluded.total_games,
           tree_json = excluded.tree_json,
           updated_at = excluded.updated_at
-      `).bind(uid, isVip ? 1 : 0, maxPly, totalGames, treeJson, now).run();
+      `).bind(uid, vipInt, maxPly, totalGames, treeJson, now).run();
       return true;
     } catch (e) {
       console.error("Failed to save opening tree in D1, ensuring schema:", e);
@@ -627,7 +646,7 @@ export async function saveOpeningTree(
             total_games = excluded.total_games,
             tree_json = excluded.tree_json,
             updated_at = excluded.updated_at
-        `).bind(uid, isVip ? 1 : 0, maxPly, totalGames, treeJson, now).run();
+        `).bind(uid, vipInt, maxPly, totalGames, treeJson, now).run();
         return true;
       } catch (retryErr) {
         console.error("saveOpeningTree retry failed:", retryErr);
@@ -637,7 +656,8 @@ export async function saveOpeningTree(
   
   memoryStore.openingTrees[uid] = {
     user_id: uid,
-    is_vip: isVip,
+    is_vip: vipInt > 0,
+    tier: vipInt === 2 ? 'vvip' : (vipInt === 1 ? 'vip' : 'free'),
     max_ply: maxPly,
     total_games: totalGames,
     tree_json: treeJson,
@@ -653,9 +673,11 @@ export async function getOpeningTreeRecord(userId: string): Promise<OpeningTreeR
     try {
       const record = await db.prepare("SELECT * FROM user_opening_trees WHERE user_id = ?").bind(uid).first();
       if (record) {
+        const rawVip = Number(record.is_vip) || 0;
         return {
           user_id: record.user_id as string,
-          is_vip: Boolean(record.is_vip),
+          is_vip: rawVip > 0,
+          tier: rawVip === 2 ? 'vvip' : (rawVip === 1 ? 'vip' : 'free'),
           max_ply: (record.max_ply as number) || 30,
           total_games: (record.total_games as number) || 0,
           tree_json: record.tree_json as string,
@@ -670,34 +692,57 @@ export async function getOpeningTreeRecord(userId: string): Promise<OpeningTreeR
   return memoryStore.openingTrees[uid] || null;
 }
 
-export async function setUserVip(userId: string, vipKey: string): Promise<boolean> {
+export async function getUserTier(userId: string): Promise<UserTier> {
   const db = await getDb();
   const uid = userId.toLowerCase();
   if (db) {
     try {
-      await db.prepare("UPDATE users SET is_vip = 1, vip_key = ? WHERE id = ?").bind(vipKey, uid).run();
-      return true;
+      const record = await db.prepare("SELECT is_vip, role FROM users WHERE id = ?").bind(uid).first();
+      if (record) {
+        if (record.role === 'vvip' || record.is_vip === 2) return 'vvip';
+        if (record.role === 'vip' || record.is_vip === 1 || Boolean(record.is_vip)) return 'vip';
+        return 'free';
+      }
     } catch (e) {
-      console.error("Failed to set VIP in D1:", e);
       await ensureSchema(db);
     }
   }
-  memoryStore.vipUsers[uid] = { isVip: true, vipKey };
+  const mem = memoryStore.vipUsers[uid];
+  if (mem) {
+    if (mem.tier === 'vvip' || mem.isVip === 2) return 'vvip';
+    if (mem.tier === 'vip' || mem.isVip) return 'vip';
+  }
+  return 'free';
+}
+
+export async function setUserTier(userId: string, tier: UserTier, key?: string): Promise<boolean> {
+  const db = await getDb();
+  const uid = userId.toLowerCase();
+  const vipInt = tier === 'vvip' ? 2 : (tier === 'vip' ? 1 : 0);
+  if (db) {
+    try {
+      await db.prepare("UPDATE users SET is_vip = ?, role = ?, vip_key = ? WHERE id = ?").bind(vipInt, tier, key || '', uid).run();
+      return true;
+    } catch (e) {
+      console.error("Failed to set tier in D1:", e);
+      await ensureSchema(db);
+      try {
+        await db.prepare("UPDATE users SET is_vip = ?, vip_key = ? WHERE id = ?").bind(vipInt, key || '', uid).run();
+        return true;
+      } catch (err2) {}
+    }
+  }
+  memoryStore.vipUsers[uid] = { isVip: vipInt > 0, tier, vipKey: key };
   return true;
 }
 
+export async function setUserVip(userId: string, vipKey: string): Promise<boolean> {
+  return setUserTier(userId, 'vip', vipKey);
+}
+
 export async function getUserVipStatus(userId: string): Promise<boolean> {
-  const db = await getDb();
-  const uid = userId.toLowerCase();
-  if (db) {
-    try {
-      const record = await db.prepare("SELECT is_vip FROM users WHERE id = ?").bind(uid).first();
-      if (record && record.is_vip) return true;
-    } catch (e) {
-      await ensureSchema(db);
-    }
-  }
-  return memoryStore.vipUsers[uid]?.isVip || false;
+  const tier = await getUserTier(userId);
+  return tier !== 'free';
 }
 
 

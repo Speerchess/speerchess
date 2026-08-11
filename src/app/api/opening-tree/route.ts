@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLinkedAccounts, getUserVipStatus, saveOpeningTree, getOpeningTreeRecord } from '../../../lib/db';
+import { getLinkedAccounts, getUserTier, saveOpeningTree, getOpeningTreeRecord, UserTier } from '../../../lib/db';
 import { buildOpeningTreeFromGames, queryOpeningTree, GameInputForTree, CompactOpeningTree } from '../../../lib/openingTree';
 
 export const runtime = 'edge';
@@ -18,6 +18,37 @@ function getSessionUserId(request: NextRequest): string | null {
   }
 }
 
+// Helper to check sync cooldown
+function checkSyncCooldown(tier: UserTier, lastUpdatedAt?: string): { allowed: boolean; remainingHours: number; nextAvailableAt: string } {
+  if (tier === 'vvip') {
+    return { allowed: true, remainingHours: 0, nextAvailableAt: new Date().toISOString() };
+  }
+  if (!lastUpdatedAt) {
+    return { allowed: true, remainingHours: 0, nextAvailableAt: new Date().toISOString() };
+  }
+
+  const lastTime = new Date(lastUpdatedAt).getTime();
+  if (isNaN(lastTime)) {
+    return { allowed: true, remainingHours: 0, nextAvailableAt: new Date().toISOString() };
+  }
+
+  const cooldownMs = tier === 'vip' ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  const nextAvailableTime = lastTime + cooldownMs;
+  const now = Date.now();
+
+  if (now < nextAvailableTime) {
+    const diffMs = nextAvailableTime - now;
+    const remainingHours = Math.ceil(diffMs / (60 * 60 * 1000));
+    return {
+      allowed: false,
+      remainingHours,
+      nextAvailableAt: new Date(nextAvailableTime).toISOString()
+    };
+  }
+
+  return { allowed: true, remainingHours: 0, nextAvailableAt: new Date().toISOString() };
+}
+
 // GET /api/opening-tree - Query opening tree for a specific FEN and color
 export async function GET(request: NextRequest) {
   try {
@@ -30,7 +61,10 @@ export async function GET(request: NextRequest) {
     const fen = searchParams.get('fen') || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     const color = (searchParams.get('color') || 'all') as 'white' | 'black' | 'all';
 
+    const tier = await getUserTier(sessionUserId);
     const record = await getOpeningTreeRecord(sessionUserId);
+    const cooldownInfo = checkSyncCooldown(tier, record?.updated_at);
+
     if (!record || !record.tree_json) {
       return NextResponse.json({
         synced: false,
@@ -39,6 +73,10 @@ export async function GET(request: NextRequest) {
         draws: 0,
         black: 0,
         moves: [],
+        tier,
+        isVip: tier !== 'free',
+        canSync: true,
+        remainingHours: 0,
         message: '오프닝 트리가 아직 생성되지 않았습니다. 계정에서 전적을 동기화하세요.'
       });
     }
@@ -55,7 +93,11 @@ export async function GET(request: NextRequest) {
       moves: queryResult.moves,
       totalGamesIndexed: record.total_games,
       maxPly: record.max_ply,
-      isVip: record.is_vip,
+      tier,
+      isVip: tier !== 'free',
+      canSync: cooldownInfo.allowed,
+      remainingHours: cooldownInfo.remainingHours,
+      nextAvailableAt: cooldownInfo.nextAvailableAt,
       updatedAt: record.updated_at
     });
   } catch (error: any) {
@@ -63,7 +105,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/opening-tree - Accepts client-compiled Opening Tree or server fallback
+// POST /api/opening-tree - Accepts client-compiled Opening Tree or server fallback with Cooldown checks
 export async function POST(request: NextRequest) {
   try {
     const sessionUserId = getSessionUserId(request);
@@ -71,9 +113,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }
 
-    const isVip = await getUserVipStatus(sessionUserId);
-    const maxAllowedGames = isVip ? 5000 : 1000;
-    const maxAllowedPly = isVip ? 60 : 30;
+    const tier = await getUserTier(sessionUserId);
+    const record = await getOpeningTreeRecord(sessionUserId);
+
+    // Cooldown verification
+    const cooldownInfo = checkSyncCooldown(tier, record?.updated_at);
+    if (!cooldownInfo.allowed) {
+      const tierLabel = tier === 'vip' ? 'VIP 회원 (1일 1회)' : '일반 회원 (7일 1회)';
+      return NextResponse.json({
+        error: `동기화 쿨다운 적용 중입니다 (${tierLabel}). 다음 동기화는 약 ${cooldownInfo.remainingHours}시간 후 가능합니다.`,
+        remainingHours: cooldownInfo.remainingHours,
+        nextAvailableAt: cooldownInfo.nextAvailableAt,
+        cooldown: true
+      }, { status: 429 });
+    }
+
+    const maxAllowedGames = tier === 'vvip' ? 10000 : (tier === 'vip' ? 5000 : 1000);
+    const maxAllowedPly = tier === 'vvip' ? 120 : (tier === 'vip' ? 60 : 30);
 
     let body: any = {};
     try {
@@ -86,13 +142,14 @@ export async function POST(request: NextRequest) {
       const totalGames = Math.min(body.totalGames || tree.totalGames || 0, maxAllowedGames);
       const maxPly = Math.min(body.maxPly || tree.maxPly || maxAllowedPly, maxAllowedPly);
 
-      await saveOpeningTree(sessionUserId, isVip, maxPly, totalGames, JSON.stringify(tree));
+      await saveOpeningTree(sessionUserId, tier, maxPly, totalGames, JSON.stringify(tree));
 
       return NextResponse.json({
         success: true,
         message: `성공적으로 ${totalGames}개의 대국을 분석하여 오프닝 트리가 저장되었습니다!`,
         totalGames,
-        isVip,
+        tier,
+        isVip: tier !== 'free',
         maxPly,
         updatedAt: tree.updatedAt || new Date().toISOString()
       });
@@ -120,13 +177,14 @@ export async function POST(request: NextRequest) {
     }
 
     const tree = buildOpeningTreeFromGames(games.slice(0, maxAllowedGames), maxAllowedPly);
-    await saveOpeningTree(sessionUserId, isVip, maxAllowedPly, tree.totalGames, JSON.stringify(tree));
+    await saveOpeningTree(sessionUserId, tier, maxAllowedPly, tree.totalGames, JSON.stringify(tree));
 
     return NextResponse.json({
       success: true,
       message: `성공적으로 ${tree.totalGames}개의 대국을 분석하여 오프닝 트리를 구축했습니다!`,
       totalGames: tree.totalGames,
-      isVip,
+      tier,
+      isVip: tier !== 'free',
       maxPly: maxAllowedPly,
       updatedAt: tree.updatedAt
     });
