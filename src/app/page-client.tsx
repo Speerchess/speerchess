@@ -602,6 +602,12 @@ export default function Home() {
 
       const saveData = await saveRes.json();
       if (saveRes.ok && saveData.success) {
+        if (typeof window !== 'undefined' && currentUser) {
+          try {
+            localStorage.setItem(`speerchess_opening_tree_${currentUser.id}`, JSON.stringify(tree));
+          } catch (e) {}
+        }
+
         setSyncProgress({
           current: tree.totalGames,
           total: tree.totalGames,
@@ -1793,10 +1799,37 @@ export default function Home() {
       
       try {
         if (explorerDb === 'player') {
+          // Instant cache load from localStorage if available
+          if (typeof window !== 'undefined' && currentUser) {
+            const cachedRaw = localStorage.getItem(`speerchess_opening_tree_${currentUser.id}`);
+            if (cachedRaw) {
+              try {
+                const cachedTree = JSON.parse(cachedRaw);
+                const localResult = queryOpeningTree(cachedTree, activeFen, playerTreeColor);
+                setPlayerTreeData({
+                  synced: true,
+                  total: localResult.total,
+                  white: localResult.white,
+                  draws: localResult.draws,
+                  black: localResult.black,
+                  moves: localResult.moves,
+                  totalGamesIndexed: cachedTree.totalGames || 0,
+                  maxPly: cachedTree.maxPly || 30,
+                  tier: userTier,
+                  isVip: userTier !== 'free',
+                  canSync: canSyncTree,
+                  updatedAt: cachedTree.updatedAt
+                });
+              } catch (e) {}
+            }
+          }
+
           const res = await fetch(`/api/opening-tree?fen=${encodeURIComponent(activeFen)}&color=${playerTreeColor}`);
           if (res.ok) {
             const data = await res.json();
-            setPlayerTreeData(data);
+            if (data.synced) {
+              setPlayerTreeData(data);
+            }
           }
         } else {
           const dbParam = explorerDb === 'masters' ? 'masters' : 'lichess';

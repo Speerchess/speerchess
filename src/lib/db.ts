@@ -179,34 +179,36 @@ export function expandAnalysisJson(minifiedJsonStr: string): string {
   }
 }
 
-function loadFallbackDb(): GameRecord[] {
+function loadFallbackFile<T>(filename: string, fallback: T): T {
   try {
     if (typeof window === 'undefined' && !process.env.DB) {
       const fs = require('fs');
-      const fallbackFile = './db_fallback.json';
-      if (fs.existsSync(fallbackFile)) {
-        return JSON.parse(fs.readFileSync(fallbackFile, 'utf-8'));
+      if (fs.existsSync(filename)) {
+        return JSON.parse(fs.readFileSync(filename, 'utf-8'));
       }
     }
-  } catch (e) {
-    // Ignore
-  }
-  return [];
+  } catch (e) {}
+  return fallback;
+}
+
+function saveFallbackFile<T>(filename: string, data: T) {
+  try {
+    if (typeof window === 'undefined' && !process.env.DB) {
+      const fs = require('fs');
+      fs.writeFileSync(filename, JSON.stringify(data, null, 2), 'utf-8');
+    }
+  } catch (e) {}
+}
+
+function loadFallbackDb(): GameRecord[] {
+  return loadFallbackFile<GameRecord[]>('./db_fallback.json', []);
 }
 
 function saveFallbackDb(db: GameRecord[]) {
-  try {
-    if (typeof window === 'undefined' && !process.env.DB) {
-      const fs = require('fs');
-      const fallbackFile = './db_fallback.json';
-      fs.writeFileSync(fallbackFile, JSON.stringify(db, null, 2), 'utf-8');
-    }
-  } catch (e) {
-    // Ignore
-  }
+  saveFallbackFile('./db_fallback.json', db);
 }
 
-// In-memory runtime cache for fallback & edge reliability
+// In-memory runtime cache with local file persistence for local dev
 interface RuntimeMemoryStore {
   games: GameRecord[];
   users: Record<string, UserRecord>;
@@ -216,11 +218,11 @@ interface RuntimeMemoryStore {
 }
 
 const memoryStore: RuntimeMemoryStore = {
-  games: [],
-  users: {},
-  linkedAccounts: [],
-  openingTrees: {},
-  vipUsers: {}
+  games: loadFallbackDb(),
+  users: loadFallbackFile<Record<string, UserRecord>>('./users_fallback.json', {}),
+  linkedAccounts: loadFallbackFile<LinkedAccountRecord[]>('./accounts_fallback.json', []),
+  openingTrees: loadFallbackFile<Record<string, OpeningTreeRecord>>('./opening_trees_fallback.json', {}),
+  vipUsers: loadFallbackFile<Record<string, any>>('./vip_fallback.json', {})
 };
 
 let schemaInitialized = false;
@@ -622,6 +624,10 @@ export async function saveOpeningTree(
 
   if (db) {
     try {
+      try {
+        await db.prepare("INSERT OR IGNORE INTO users (id, username, is_vip) VALUES (?, ?, ?)").bind(uid, uid, vipInt).run();
+      } catch (e) {}
+
       await db.prepare(`
         INSERT INTO user_opening_trees (user_id, is_vip, max_ply, total_games, tree_json, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -663,6 +669,7 @@ export async function saveOpeningTree(
     tree_json: treeJson,
     updated_at: now
   };
+  saveFallbackFile('./opening_trees_fallback.json', memoryStore.openingTrees);
   return true;
 }
 
