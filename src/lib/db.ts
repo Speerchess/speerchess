@@ -650,6 +650,35 @@ export interface SaveTreeResult {
   error?: string;
 }
 
+export async function compressJson(str: string): Promise<string> {
+  try {
+    const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+    const buffer = await new Response(stream).arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  } catch (e) {
+    return str;
+  }
+}
+
+export async function decompressJson(base64: string): Promise<string> {
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).text();
+  } catch (e) {
+    return base64;
+  }
+}
+
 export async function saveOpeningTree(
   userId: string,
   tier: UserTier | boolean | number,
@@ -670,6 +699,13 @@ export async function saveOpeningTree(
     vipInt = 1;
   }
 
+  // Compress treeJson to fit safely under SQLite 1MB limit
+  let payloadToStore = treeJson;
+  try {
+    const compressed = await compressJson(treeJson);
+    payloadToStore = "gz:" + compressed;
+  } catch (e) {}
+
   if (db) {
     // Ensure user exists first (needed for FK constraint)
     try {
@@ -689,7 +725,7 @@ export async function saveOpeningTree(
           total_games = excluded.total_games,
           tree_json = excluded.tree_json,
           updated_at = excluded.updated_at
-      `).bind(uid, vipInt, maxPly, totalGames, treeJson, now).run();
+      `).bind(uid, vipInt, maxPly, totalGames, payloadToStore, now).run();
       return { saved: true, storage: 'D1', dbFound: true };
     } catch (e: any) {
       console.error("saveOpeningTree D1 insert failed:", e?.message);
@@ -705,7 +741,7 @@ export async function saveOpeningTree(
             total_games = excluded.total_games,
             tree_json = excluded.tree_json,
             updated_at = excluded.updated_at
-        `).bind(uid, vipInt, maxPly, totalGames, treeJson, now).run();
+        `).bind(uid, vipInt, maxPly, totalGames, payloadToStore, now).run();
         return { saved: true, storage: 'D1', dbFound: true };
       } catch (retryErr: any) {
         console.error("saveOpeningTree D1 retry failed:", retryErr?.message);
@@ -738,18 +774,22 @@ export async function getOpeningTreeRecord(userId: string): Promise<OpeningTreeR
       const record = await db.prepare("SELECT * FROM user_opening_trees WHERE user_id = ?").bind(uid).first();
       if (record && record.tree_json) {
         const rawVip = Number(record.is_vip) || 0;
+        let finalTreeJson = record.tree_json as string;
+        if (finalTreeJson.startsWith("gz:")) {
+          finalTreeJson = await decompressJson(finalTreeJson.slice(3));
+        }
         return {
           user_id: record.user_id as string,
           is_vip: rawVip > 0,
           tier: rawVip === 2 ? 'vvip' : (rawVip === 1 ? 'vip' : 'free'),
           max_ply: (record.max_ply as number) || 30,
           total_games: (record.total_games as number) || 0,
-          tree_json: record.tree_json as string,
+          tree_json: finalTreeJson,
           updated_at: record.updated_at as string
         };
       }
     } catch (e) {
-      console.error("Failed to get opening tree from D1:", e);
+      console.error("getOpeningTreeRecord D1 error:", e);
       await ensureSchema(db);
     }
   }
