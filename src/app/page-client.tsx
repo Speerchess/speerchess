@@ -791,9 +791,9 @@ export default function Home() {
     setLoadingUserGames(true);
     setVisibleGamesCount(30);
     try {
-      // Fetch up to 100 recent games per account for fast, reliable sub-second loading
+      // Fetch up to 1000 recent games per account
       const promises = uniqueAccounts.map(acc => 
-        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=100`)
+        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=1000`)
           .then(res => res.ok ? res.json() : { games: [] })
           .then(d => {
             const list = (d.games || []) as UserGameItem[];
