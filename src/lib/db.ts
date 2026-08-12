@@ -506,11 +506,13 @@ export async function getUser(id: string): Promise<UserRecord | null> {
 export async function getLinkedAccounts(userId: string): Promise<LinkedAccountRecord[]> {
   const db = await getDb();
   const uid = userId.toLowerCase();
+  let accounts: LinkedAccountRecord[] = [];
+
   if (db) {
     try {
       const { results } = await db.prepare("SELECT * FROM linked_accounts WHERE user_id = ? ORDER BY is_primary DESC, id ASC").bind(uid).all();
       if (results && results.length > 0) {
-        return results.map((r: any) => ({
+        accounts = results.map((r: any) => ({
           id: r.id as number,
           user_id: r.user_id as string,
           platform: r.platform as 'lichess' | 'chesscom',
@@ -525,19 +527,38 @@ export async function getLinkedAccounts(userId: string): Promise<LinkedAccountRe
     }
   }
 
-  const inMem = memoryStore.linkedAccounts.filter(a => a.user_id === uid);
-  if (inMem.length > 0) return inMem;
+  if (accounts.length === 0) {
+    const inMem = memoryStore.linkedAccounts.filter(a => a.user_id === uid);
+    if (inMem.length > 0) {
+      accounts = inMem;
+    }
+  }
 
-  // If none exists yet, default to user itself
-  return [
-    {
+  // Ensure primary Lichess account is ALWAYS present
+  const hasPrimary = accounts.some(a => a.platform === 'lichess' && a.platform_username.toLowerCase() === uid);
+  if (!hasPrimary) {
+    accounts.unshift({
+      id: 0,
       user_id: uid,
       platform: 'lichess',
       platform_username: uid,
       is_primary: true,
       created_at: new Date().toISOString()
+    });
+  }
+
+  // Deduplicate accounts case-insensitively
+  const seen = new Set<string>();
+  const uniqueAccounts: LinkedAccountRecord[] = [];
+  for (const a of accounts) {
+    const key = `${a.platform}:${a.platform_username.toLowerCase().trim()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueAccounts.push(a);
     }
-  ];
+  }
+
+  return uniqueAccounts;
 }
 
 // 4. Add Linked Account (Supports unlimited Lichess or Chess.com accounts)
@@ -549,25 +570,23 @@ export async function addLinkedAccount(userId: string, platform: 'lichess' | 'ch
 
   if (db) {
     try {
-      await db.prepare(`
-        INSERT INTO linked_accounts (user_id, platform, platform_username, is_primary)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(user_id, platform, platform_username) DO NOTHING
-      `).bind(uid, platform, trimmed, isPrimary ? 1 : 0).run();
+      // Check if already linked with different case
+      const existing = await db.prepare("SELECT id FROM linked_accounts WHERE user_id = ? AND platform = ? AND LOWER(platform_username) = LOWER(?)")
+        .bind(uid, platform, trimmed).first();
+
+      if (existing) {
+        // Update to latest trimmed casing
+        await db.prepare("UPDATE linked_accounts SET platform_username = ? WHERE id = ?").bind(trimmed, existing.id).run();
+      } else {
+        await db.prepare(`
+          INSERT INTO linked_accounts (user_id, platform, platform_username, is_primary)
+          VALUES (?, ?, ?, ?)
+        `).bind(uid, platform, trimmed, isPrimary ? 1 : 0).run();
+      }
       return true;
     } catch (e) {
       console.error("addLinkedAccount D1 error, retrying with schema:", e);
       await ensureSchema(db);
-      try {
-        await db.prepare(`
-          INSERT INTO linked_accounts (user_id, platform, platform_username, is_primary)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(user_id, platform, platform_username) DO NOTHING
-        `).bind(uid, platform, trimmed, isPrimary ? 1 : 0).run();
-        return true;
-      } catch (retryErr) {
-        console.error("addLinkedAccount retry failed:", retryErr);
-      }
     }
   }
 

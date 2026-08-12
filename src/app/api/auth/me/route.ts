@@ -28,18 +28,25 @@ export async function GET(request: NextRequest) {
       has_token: Boolean(userFromDb?.access_token || sessionData.access_token)
     };
 
-    // Ensure at least the primary Lichess account is present
-    let finalAccounts = linkedAccountsFromDb;
-    if (!finalAccounts || finalAccounts.length === 0) {
-      finalAccounts = [
-        {
-          user_id: finalUser.id,
-          platform: 'lichess',
-          platform_username: finalUser.username,
-          is_primary: true
-        }
-      ];
+    // Ensure at least the primary Lichess account is present and deduplicate
+    let finalAccounts = linkedAccountsFromDb || [];
+    const hasPrimary = finalAccounts.some(a => a.platform === 'lichess' && a.platform_username.toLowerCase() === finalUser.username.toLowerCase());
+    if (!hasPrimary) {
+      finalAccounts.unshift({
+        user_id: finalUser.id,
+        platform: 'lichess',
+        platform_username: finalUser.username,
+        is_primary: true
+      });
     }
+
+    const seenMe = new Set<string>();
+    finalAccounts = finalAccounts.filter(a => {
+      const key = `${a.platform}:${a.platform_username.toLowerCase().trim()}`;
+      if (seenMe.has(key)) return false;
+      seenMe.add(key);
+      return true;
+    });
 
     return NextResponse.json({
       authenticated: true,

@@ -58,28 +58,39 @@ export function normalizeFen(fen: string): string {
 export function parseGameMoves(game: GameInputForTree): { moves: string[]; outcome: 'white' | 'black' | 'draw'; userColor: 'white' | 'black' } | null {
   try {
     const chess = new Chess();
-    if (game.pgn) {
+    if (game.moves && Array.isArray(game.moves) && game.moves.length > 0) {
+      for (const m of game.moves) {
+        try {
+          const res = chess.move(m);
+          if (!res) break;
+        } catch (err) { break; }
+      }
+    } else if (game.pgn) {
+      let loaded = false;
       try {
         chess.loadPgn(game.pgn);
-      } catch (e) {
-        // Fallback: extract moves directly from PGN text
+        if (chess.history().length > 0) loaded = true;
+      } catch (e) {}
+
+      if (!loaded) {
+        // Fallback: strip headers, comments, variations, NAGs, and move numbers
         const cleanMoves = game.pgn
-          .replace(/\{[^}]*\}/g, '') // remove comments
-          .replace(/\([^)]*\)/g, '') // remove variations
-          .replace(/\$\d+/g, '')     // remove NAGs
-          .replace(/\d+\.+/g, '')    // remove move numbers
+          .replace(/\[[^\]]*\]/g, '') // remove headers [Event "..."]
+          .replace(/\{[^}]*\}/g, '')  // remove comments { ... }
+          .replace(/\([^)]*\)/g, '')  // remove variations ( ... )
+          .replace(/\$\d+/g, '')      // remove NAGs $1, $2
+          .replace(/\d+\.+/g, '')     // remove move numbers 1. 2.
           .replace(/(1-0|0-1|1\/2-1\/2|\*)/g, '')
           .trim()
           .split(/\s+/)
           .filter(Boolean);
         
         for (const m of cleanMoves) {
-          try { chess.move(m); } catch (err) { break; }
+          try {
+            const res = chess.move(m);
+            if (!res) break;
+          } catch (err) { break; }
         }
-      }
-    } else if (game.moves && Array.isArray(game.moves)) {
-      for (const m of game.moves) {
-        try { chess.move(m); } catch (err) { break; }
       }
     }
 

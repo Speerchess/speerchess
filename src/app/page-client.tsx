@@ -527,10 +527,21 @@ export default function Home() {
     setSyncProgress({ current: 0, total: targetMax, stage: language === 'ko' ? '대국 기록 수집 준비 중...' : 'Preparing...' });
 
     try {
-      // 1. Get linked accounts
-      let accountsToSync = linkedAccounts;
-      if (!accountsToSync || accountsToSync.length === 0) {
-        accountsToSync = [{ user_id: currentUser.id, platform: 'lichess', platform_username: currentUser.username, is_primary: true }];
+      // 1. Get linked accounts (always include primary Lichess account, deduplicated)
+      let rawAccounts = linkedAccounts || [];
+      const hasPrimary = rawAccounts.some(a => a.platform === 'lichess' && a.platform_username.toLowerCase() === currentUser.username.toLowerCase());
+      if (!hasPrimary) {
+        rawAccounts = [{ user_id: currentUser.id, platform: 'lichess', platform_username: currentUser.username, is_primary: true }, ...rawAccounts];
+      }
+
+      const seen = new Set<string>();
+      const accountsToSync: LinkedAccountRecord[] = [];
+      for (const acc of rawAccounts) {
+        const key = `${acc.platform}:${(acc.platform_username || '').toLowerCase().trim()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          accountsToSync.push(acc);
+        }
       }
 
       const quotaPerAccount = Math.ceil(targetMax / accountsToSync.length);
@@ -559,9 +570,6 @@ export default function Home() {
                   if (g.winner === 'white') outcome = '1-0';
                   else if (g.winner === 'black') outcome = '0-1';
                   else outcome = '1/2-1/2';
-
-                  const whiteName = g.players?.white?.user?.name || g.players?.white?.name || g.players?.white?.user?.id || 'White';
-                  const blackName = g.players?.black?.user?.name || g.players?.black?.name || g.players?.black?.user?.id || 'Black';
 
                   collectedGames.push({
                     id: `lichess_${g.id}`,
@@ -617,26 +625,37 @@ export default function Home() {
         }
       }
 
-      if (collectedGames.length === 0) {
+      // Deduplicate collected games strictly by ID
+      const gameMap = new Map<string, GameInputForTree>();
+      for (const g of collectedGames) {
+        if (g && g.id) {
+          if (!gameMap.has(g.id)) {
+            gameMap.set(g.id, g);
+          }
+        }
+      }
+      const uniqueCollectedGames = Array.from(gameMap.values());
+
+      if (uniqueCollectedGames.length === 0) {
         alert(language === 'ko' ? '가져올 수 있는 대국 기록이 없습니다.' : 'No games found to sync.');
         return;
       }
 
       // 2. Compile Opening Tree locally on client browser
       setSyncProgress({
-        current: collectedGames.length,
-        total: collectedGames.length,
-        stage: `🌳 총 ${collectedGames.length}개 대국 오프닝 트리 계산 중...`
+        current: uniqueCollectedGames.length,
+        total: uniqueCollectedGames.length,
+        stage: `🌳 총 ${uniqueCollectedGames.length}개 대국 오프닝 트리 계산 중...`
       });
 
       await new Promise(r => setTimeout(r, 60));
 
-      const tree = buildOpeningTreeFromGames(collectedGames, targetPly);
+      const tree = buildOpeningTreeFromGames(uniqueCollectedGames, targetPly);
 
       // 3. Upload compiled tree JSON to D1
       setSyncProgress({
-        current: collectedGames.length,
-        total: collectedGames.length,
+        current: uniqueCollectedGames.length,
+        total: uniqueCollectedGames.length,
         stage: '☁️ 데이터베이스 저장 중...'
       });
 
@@ -714,11 +733,23 @@ export default function Home() {
       setUserGames([]);
       return;
     }
+
+    // Deduplicate accountsToFetch case-insensitively
+    const seenAccs = new Set<string>();
+    const uniqueAccounts: LinkedAccountRecord[] = [];
+    for (const acc of accountsToFetch) {
+      const key = `${acc.platform}:${(acc.platform_username || '').toLowerCase().trim()}`;
+      if (!seenAccs.has(key)) {
+        seenAccs.add(key);
+        uniqueAccounts.push(acc);
+      }
+    }
+
     setLoadingUserGames(true);
     setVisibleGamesCount(30);
     try {
       // Fetch up to 100 recent games per account for fast, reliable sub-second loading
-      const promises = accountsToFetch.map(acc => 
+      const promises = uniqueAccounts.map(acc => 
         fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=100`)
           .then(res => res.ok ? res.json() : { games: [] })
           .then(d => {
@@ -731,9 +762,20 @@ export default function Home() {
       const results = await Promise.all(promises);
       const flattened = results.flat();
       
+      // Deduplicate games strictly by game id
+      const gameMap = new Map<string, UserGameItem>();
+      for (const g of flattened) {
+        if (g && g.id) {
+          if (!gameMap.has(g.id)) {
+            gameMap.set(g.id, g);
+          }
+        }
+      }
+      const deduplicated = Array.from(gameMap.values());
+
       // Sort merged games by date in descending order (latest games first)
-      flattened.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      setUserGames(flattened);
+      deduplicated.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setUserGames(deduplicated);
     } catch (e) {
       console.error("Failed to fetch games:", e);
       setUserGames([]);
