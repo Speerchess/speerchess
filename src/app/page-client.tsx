@@ -728,11 +728,14 @@ export default function Home() {
     setLoadingUserGames(true);
     setVisibleGamesCount(30);
     try {
-      // Always fetch full game archives (up to 500 per account) for seamless instant tab filtering
+      // Fetch up to 100 recent games per account for fast, reliable sub-second loading
       const promises = accountsToFetch.map(acc => 
-        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=500`)
+        fetch(`/api/user-games?platform=${acc.platform}&username=${encodeURIComponent(acc.platform_username)}&max=100`)
           .then(res => res.ok ? res.json() : { games: [] })
-          .then(d => (d.games || []) as UserGameItem[])
+          .then(d => {
+            const list = (d.games || []) as UserGameItem[];
+            return list.map(g => ({ ...g, accountUsername: g.accountUsername || acc.platform_username }));
+          })
           .catch(() => [] as UserGameItem[])
       );
 
@@ -757,6 +760,7 @@ export default function Home() {
     const lowerFUser = (fUser || '').toLowerCase().trim();
     return userGames.filter(g => {
       if (g.platform !== fPlatform) return false;
+      if (g.accountUsername && g.accountUsername.toLowerCase() === lowerFUser) return true;
       const isWhite = (g.white?.username || '').toLowerCase() === lowerFUser;
       const isBlack = (g.black?.username || '').toLowerCase() === lowerFUser;
       return isWhite || isBlack || !lowerFUser;
@@ -5826,20 +5830,11 @@ export default function Home() {
                                         <div
                                           key={gIdx}
                                           onClick={() => {
-                                            if (g.pgn) {
-                                              openUserGame({
-                                                id: g.id,
-                                                platform: g.platform || 'lichess',
-                                                url: g.url || '',
-                                                pgn: g.pgn,
-                                                timeClass: 'rapid',
-                                                timeControl: '',
-                                                date: g.date,
-                                                white: { username: g.white, rating: g.whiteRating, result: g.userColor === 'white' && isWin ? 'win' : '' },
-                                                black: { username: g.black, rating: g.blackRating, result: g.userColor === 'black' && isWin ? 'win' : '' },
-                                                userColor: g.userColor,
-                                                userResult: g.userResult || 'draw'
-                                              });
+                                            const foundGame = userGames.find(ug => ug.id === g.id || (g.url && ug.url === g.url));
+                                            if (foundGame) {
+                                              openUserGame(foundGame);
+                                            } else if (g.url) {
+                                              window.open(g.url, '_blank');
                                             }
                                           }}
                                           className={`p-2 rounded-xl border flex items-center justify-between text-xs transition-all cursor-pointer active:scale-98 ${
@@ -6303,7 +6298,9 @@ export default function Home() {
                     const lowerUser = acc.platform_username.toLowerCase();
                     const accCount = userGames.filter(g => 
                       g.platform === acc.platform && 
-                      ((g.white?.username || '').toLowerCase() === lowerUser || (g.black?.username || '').toLowerCase() === lowerUser)
+                      ((g.accountUsername && g.accountUsername.toLowerCase() === lowerUser) ||
+                       (g.white?.username || '').toLowerCase() === lowerUser || 
+                       (g.black?.username || '').toLowerCase() === lowerUser)
                     ).length;
 
                     return (

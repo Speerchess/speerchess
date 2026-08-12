@@ -13,7 +13,6 @@ export interface PositionGameSummary {
   id: string;
   url?: string;
   platform?: 'lichess' | 'chesscom';
-  pgn?: string;
   white: string;
   black: string;
   whiteRating: number;
@@ -160,7 +159,6 @@ export function buildOpeningTreeFromGames(
       id: game.id || `g_${tree.totalGames}`,
       url: game.url,
       platform: game.platform || 'lichess',
-      pgn: game.pgn,
       white: game.whiteUsername || (userColor === 'white' ? '나 (White)' : '상대 (White)'),
       black: game.blackUsername || (userColor === 'black' ? '나 (Black)' : '상대 (Black)'),
       whiteRating: game.whiteRating || 1500,
@@ -226,10 +224,10 @@ function recordPositionMove(
   else if (outcome === 'black') pos.black++;
   else pos.draws++;
 
-  // Save game summary for position exploration (up to 20 games per position)
+  // Save compact game summary for position exploration (up to 5 games per position)
   if (gameSummary) {
     if (!pos.recentGames) pos.recentGames = [];
-    if (!pos.recentGames.some(g => g.id === gameSummary.id) && pos.recentGames.length < 20) {
+    if (!pos.recentGames.some(g => g.id === gameSummary.id) && pos.recentGames.length < 5) {
       pos.recentGames.push(gameSummary);
     }
   }
