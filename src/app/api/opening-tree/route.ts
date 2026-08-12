@@ -84,7 +84,6 @@ export async function GET(request: NextRequest) {
       draws: queryResult.draws,
       black: queryResult.black,
       moves: queryResult.moves,
-      recentGames: queryResult.recentGames || [],
       totalGamesIndexed: record.total_games,
       maxPly: record.max_ply,
       tier,

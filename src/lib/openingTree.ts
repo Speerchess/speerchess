@@ -9,26 +9,12 @@ export interface MoveStats {
   black: number;
 }
 
-export interface PositionGameSummary {
-  id: string;
-  url?: string;
-  platform?: 'lichess' | 'chesscom';
-  white: string;
-  black: string;
-  whiteRating: number;
-  blackRating: number;
-  userColor: 'white' | 'black';
-  userResult: 'win' | 'loss' | 'draw';
-  date: string;
-}
-
 export interface PositionStats {
   total: number;
   white: number;
   draws: number;
   black: number;
   moves: Record<string, MoveStats>;
-  recentGames?: PositionGameSummary[];
 }
 
 export interface CompactOpeningTree {
@@ -51,11 +37,6 @@ export interface GameInputForTree {
   result?: '1-0' | '0-1' | '1/2-1/2' | 'win' | 'loss' | 'draw' | string;
   whiteResult?: string;
   blackResult?: string;
-  whiteUsername?: string;
-  blackUsername?: string;
-  whiteRating?: number;
-  blackRating?: number;
-  date?: string;
 }
 
 /**
@@ -127,8 +108,8 @@ export function parseGameMoves(game: GameInputForTree): { moves: string[]; outco
 }
 
 /**
- * Builds a compressed Opening Tree from an array of games
- * MaxPly: 30 (15 full moves) for regular users, 60 (30 full moves) for VIPs, 120 for VVIPs
+ * Builds an ultra-compact, high-speed pure-statistics Opening Tree
+ * (Zero extra storage - all games matched on client side in real-time)
  */
 export function buildOpeningTreeFromGames(
   games: GameInputForTree[],
@@ -152,22 +133,6 @@ export function buildOpeningTreeFromGames(
     const { moves, outcome, userColor } = parsed;
     const isUserWhite = userColor === 'white';
 
-    const userResult: 'win' | 'loss' | 'draw' = outcome === 'draw' ? 'draw' : 
-      ((outcome === 'white' && userColor === 'white') || (outcome === 'black' && userColor === 'black') ? 'win' : 'loss');
-
-    const gameSummary: PositionGameSummary = {
-      id: game.id || `g_${tree.totalGames}`,
-      url: game.url,
-      platform: game.platform || 'lichess',
-      white: game.whiteUsername || (userColor === 'white' ? '나 (White)' : '상대 (White)'),
-      black: game.blackUsername || (userColor === 'black' ? '나 (Black)' : '상대 (Black)'),
-      whiteRating: game.whiteRating || 1500,
-      blackRating: game.blackRating || 1500,
-      userColor,
-      userResult,
-      date: game.date || new Date().toISOString()
-    };
-
     const chess = new Chess();
     const limit = Math.min(moves.length, maxPly);
 
@@ -185,13 +150,13 @@ export function buildOpeningTreeFromGames(
       }
 
       // Record in 'all' tree
-      recordPositionMove(tree.all, currentFen, moveSan, moveUci, outcome, gameSummary);
+      recordPositionMove(tree.all, currentFen, moveSan, moveUci, outcome);
 
       // Record in user's color-specific tree
       if (isUserWhite) {
-        recordPositionMove(tree.white, currentFen, moveSan, moveUci, outcome, gameSummary);
+        recordPositionMove(tree.white, currentFen, moveSan, moveUci, outcome);
       } else {
-        recordPositionMove(tree.black, currentFen, moveSan, moveUci, outcome, gameSummary);
+        recordPositionMove(tree.black, currentFen, moveSan, moveUci, outcome);
       }
     }
   }
@@ -204,8 +169,7 @@ function recordPositionMove(
   fen: string,
   san: string,
   uci: string,
-  outcome: 'white' | 'black' | 'draw',
-  gameSummary?: PositionGameSummary
+  outcome: 'white' | 'black' | 'draw'
 ) {
   if (!treeMap[fen]) {
     treeMap[fen] = {
@@ -213,8 +177,7 @@ function recordPositionMove(
       white: 0,
       draws: 0,
       black: 0,
-      moves: {},
-      recentGames: []
+      moves: {}
     };
   }
 
@@ -223,14 +186,6 @@ function recordPositionMove(
   if (outcome === 'white') pos.white++;
   else if (outcome === 'black') pos.black++;
   else pos.draws++;
-
-  // Save compact game summary for position exploration (up to 5 games per position)
-  if (gameSummary) {
-    if (!pos.recentGames) pos.recentGames = [];
-    if (!pos.recentGames.some(g => g.id === gameSummary.id) && pos.recentGames.length < 5) {
-      pos.recentGames.push(gameSummary);
-    }
-  }
 
   if (!pos.moves[uci]) {
     pos.moves[uci] = {
@@ -273,10 +228,9 @@ export function queryOpeningTree(
     drawPct: number;
     blackPct: number;
   }>;
-  recentGames: PositionGameSummary[];
 } {
   if (!tree) {
-    return { total: 0, white: 0, draws: 0, black: 0, moves: [], recentGames: [] };
+    return { total: 0, white: 0, draws: 0, black: 0, moves: [] };
   }
 
   const targetMap = colorFilter === 'white' ? tree.white : colorFilter === 'black' ? tree.black : tree.all;
@@ -284,7 +238,7 @@ export function queryOpeningTree(
   const pos = targetMap ? targetMap[normalized] : null;
 
   if (!pos) {
-    return { total: 0, white: 0, draws: 0, black: 0, moves: [], recentGames: [] };
+    return { total: 0, white: 0, draws: 0, black: 0, moves: [] };
   }
 
   const moveList = Object.values(pos.moves || {})
@@ -309,7 +263,6 @@ export function queryOpeningTree(
     white: pos.white,
     draws: pos.draws,
     black: pos.black,
-    moves: moveList,
-    recentGames: pos.recentGames || []
+    moves: moveList
   };
 }

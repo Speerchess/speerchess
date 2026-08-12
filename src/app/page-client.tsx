@@ -11,7 +11,7 @@ import { Chess } from 'chess.js';
 import { PRESET_GAMES } from '../lib/preset_games';
 import { UserGameItem } from './api/user-games/route';
 import { LinkedAccountRecord } from '../lib/db';
-import { buildOpeningTreeFromGames, queryOpeningTree, GameInputForTree } from '../lib/openingTree';
+import { buildOpeningTreeFromGames, queryOpeningTree, normalizeFen, GameInputForTree } from '../lib/openingTree';
 
 type ViewState = 'INPUT' | 'LOADING' | 'SUMMARY' | 'REVIEW' | 'EXPLORE' | 'BRILLIANT' | 'BLUNDER' | 'CHESSLE' | 'HISTORY' | 'GAME_VIEW';
 type ReviewTabState = 'MOVES' | 'ENGINE'; // MOVES: 감상모드, ENGINE: 분석모드
@@ -452,7 +452,6 @@ export default function Home() {
                       draws: localResult.draws,
                       black: localResult.black,
                       moves: localResult.moves,
-                      recentGames: localResult.recentGames || [],
                       totalGamesIndexed: cachedTree.totalGames || 0,
                       maxPly: cachedTree.maxPly || 30,
                       tier: data.user.role || 'free',
@@ -571,12 +570,7 @@ export default function Home() {
                     pgn: g.pgn || g.moves,
                     moves: g.moves ? g.moves.split(' ') : undefined,
                     userColor: isWhite ? 'white' : 'black',
-                    result: outcome,
-                    whiteUsername: whiteName,
-                    blackUsername: blackName,
-                    whiteRating: g.players?.white?.rating || 1500,
-                    blackRating: g.players?.black?.rating || 1500,
-                    date: new Date(g.createdAt || Date.now()).toISOString()
+                    result: outcome
                   });
                 } catch (e) {}
               }
@@ -609,12 +603,7 @@ export default function Home() {
                           platform: 'chesscom',
                           pgn: mg.pgn,
                           userColor: isWhite ? 'white' : 'black',
-                          result: outcome,
-                          whiteUsername: mg.white?.username || 'White',
-                          blackUsername: mg.black?.username || 'Black',
-                          whiteRating: mg.white?.rating || 1500,
-                          blackRating: mg.black?.rating || 1500,
-                          date: new Date(mg.end_time ? mg.end_time * 1000 : Date.now()).toISOString()
+                          result: outcome
                         });
                       }
                     }
@@ -1782,6 +1771,64 @@ export default function Home() {
     }
     return '';
   }, [activeTab, moveTree, currentNodeId]);
+
+  // Real-time zero-storage matching of user games that reached activeAnalysisFen
+  const matchingPositionGames = useMemo(() => {
+    if (!userGames || userGames.length === 0 || explorerDb !== 'player') return [];
+    const targetFen = normalizeFen(activeAnalysisFen);
+    const results: UserGameItem[] = [];
+
+    for (const g of userGames) {
+      if (!g.pgn) continue;
+      if (playerTreeColor === 'white' && g.userColor !== 'white') continue;
+      if (playerTreeColor === 'black' && g.userColor !== 'black') continue;
+
+      try {
+        const chess = new Chess();
+        if (normalizeFen(chess.fen()) === targetFen) {
+          results.push(g);
+          continue;
+        }
+
+        const cleanMoves = g.pgn
+          .replace(/\{[^}]*\}/g, '')
+          .replace(/\([^)]*\)/g, '')
+          .replace(/\$\d+/g, '')
+          .replace(/\d+\.+/g, '')
+          .replace(/(1-0|0-1|1\/2-1\/2|\*)/g, '')
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+
+        const limit = Math.min(cleanMoves.length, 60);
+        for (let i = 0; i < limit; i++) {
+          try {
+            const m = chess.move(cleanMoves[i]);
+            if (!m) break;
+            if (normalizeFen(chess.fen()) === targetFen) {
+              results.push(g);
+              break;
+            }
+          } catch (e) {
+            break;
+          }
+        }
+      } catch (e) {}
+    }
+
+    return results.sort((a, b) => {
+      if (positionGamesSort === 'result') {
+        const scoreA = a.userResult === 'win' ? 3 : a.userResult === 'draw' ? 2 : 1;
+        const scoreB = b.userResult === 'win' ? 3 : b.userResult === 'draw' ? 2 : 1;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+      } else if (positionGamesSort === 'rating') {
+        const oppRatingA = a.userColor === 'white' ? (a.black?.rating || 0) : (a.white?.rating || 0);
+        const oppRatingB = b.userColor === 'white' ? (b.black?.rating || 0) : (b.white?.rating || 0);
+        if (oppRatingB !== oppRatingA) return oppRatingB - oppRatingA;
+      }
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+  }, [userGames, activeAnalysisFen, explorerDb, playerTreeColor, positionGamesSort]);
 
   // Lichess Cloud Eval API integration
   useEffect(() => {
@@ -5722,7 +5769,7 @@ export default function Home() {
                                 positionViewMode === 'GAMES' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
                               }`}
                             >
-                              ⚔️ 관련 대국 ({playerTreeData.recentGames?.length || 0})
+                              ⚔️ 관련 대국 ({matchingPositionGames.length})
                             </button>
                           </div>
 
@@ -5765,7 +5812,7 @@ export default function Home() {
                               </div>
                             )
                           ) : (
-                            /* Matching Games View with Live Sorting */
+                            /* Real-time zero-storage Matching Games View */
                             <div className="space-y-1.5">
                               {/* Sort Buttons Bar */}
                               <div className="flex items-center justify-between gap-1 pb-1">
@@ -5800,70 +5847,50 @@ export default function Home() {
                                 </div>
                               </div>
 
-                              {(!playerTreeData.recentGames || playerTreeData.recentGames.length === 0) ? (
+                              {matchingPositionGames.length === 0 ? (
                                 <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
-                                  이 포지션이 등장한 대국 기록이 없습니다.
+                                  불러온 최근 전적에서 이 포지션이 등장한 대국이 없습니다.
                                 </div>
                               ) : (
                                 <div className="space-y-1 max-h-60 overflow-y-auto no-scrollbar pr-0.5">
-                                  {playerTreeData.recentGames
-                                    .slice()
-                                    .sort((a: any, b: any) => {
-                                      if (positionGamesSort === 'result') {
-                                        const scoreA = a.userResult === 'win' ? 3 : a.userResult === 'draw' ? 2 : 1;
-                                        const scoreB = b.userResult === 'win' ? 3 : b.userResult === 'draw' ? 2 : 1;
-                                        if (scoreB !== scoreA) return scoreB - scoreA;
-                                      } else if (positionGamesSort === 'rating') {
-                                        const oppRatingA = a.userColor === 'white' ? (a.blackRating || 0) : (a.whiteRating || 0);
-                                        const oppRatingB = b.userColor === 'white' ? (b.blackRating || 0) : (b.whiteRating || 0);
-                                        if (oppRatingB !== oppRatingA) return oppRatingB - oppRatingA;
-                                      }
-                                      return new Date(b.date).getTime() - new Date(a.date).getTime();
-                                    })
-                                    .map((g: any, gIdx: number) => {
-                                      const opponent = g.userColor === 'white' ? (g.black || 'Black') : (g.white || 'White');
-                                      const opponentRating = g.userColor === 'white' ? (g.blackRating || 1500) : (g.whiteRating || 1500);
-                                      const isWin = g.userResult === 'win';
-                                      const isLoss = g.userResult === 'loss';
+                                  {matchingPositionGames.map((g, gIdx) => {
+                                    const opponent = g.userColor === 'white' ? g.black : g.white;
+                                    const opponentName = opponent?.username || 'Opponent';
+                                    const opponentRating = opponent?.rating || 1500;
+                                    const isWin = g.userResult === 'win';
+                                    const isLoss = g.userResult === 'loss';
 
-                                      return (
-                                        <div
-                                          key={gIdx}
-                                          onClick={() => {
-                                            const foundGame = userGames.find(ug => ug.id === g.id || (g.url && ug.url === g.url));
-                                            if (foundGame) {
-                                              openUserGame(foundGame);
-                                            } else if (g.url) {
-                                              window.open(g.url, '_blank');
-                                            }
-                                          }}
-                                          className={`p-2 rounded-xl border flex items-center justify-between text-xs transition-all cursor-pointer active:scale-98 ${
-                                            isDark ? 'bg-stone-900 border-stone-800 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
-                                          }`}
-                                        >
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            <span className="text-[11px] font-black">{g.userColor === 'white' ? '⚪' : '⚫'}</span>
-                                            <div className="min-w-0">
-                                              <div className="flex items-center gap-1 truncate">
-                                                <span className="font-extrabold text-[11px] truncate max-w-[100px]">{opponent}</span>
-                                                <span className="text-[9px] text-slate-400 font-bold">({opponentRating})</span>
-                                              </div>
-                                              <div className="text-[9px] text-slate-500 font-bold">
-                                                {new Date(g.date).toLocaleDateString()} • {g.platform === 'lichess' ? 'Lichess' : 'Chess.com'}
-                                              </div>
+                                    return (
+                                      <div
+                                        key={g.id || gIdx}
+                                        onClick={() => openUserGame(g)}
+                                        className={`p-2 rounded-xl border flex items-center justify-between text-xs transition-all cursor-pointer active:scale-98 ${
+                                          isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span className="text-[11px] font-black">{g.userColor === 'white' ? '⚪' : '⚫'}</span>
+                                          <div className="min-w-0">
+                                            <div className="flex items-center gap-1 truncate">
+                                              <span className="font-extrabold text-[11px] truncate max-w-[100px]">{opponentName}</span>
+                                              <span className="text-[9px] text-slate-400 font-bold">({opponentRating})</span>
+                                            </div>
+                                            <div className="text-[9px] text-slate-500 font-bold">
+                                              {new Date(g.date).toLocaleDateString()} • {g.platform === 'lichess' ? 'Lichess' : 'Chess.com'}
                                             </div>
                                           </div>
-
-                                          <div className="flex items-center gap-1.5 shrink-0">
-                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                                              isWin ? 'bg-emerald-600 text-white' : isLoss ? 'bg-red-600 text-white' : 'bg-stone-600 text-slate-200'
-                                            }`}>
-                                              {isWin ? '+ 승리' : isLoss ? '- 패배' : '= 무승부'}
-                                            </span>
-                                          </div>
                                         </div>
-                                      );
-                                    })}
+
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                                            isWin ? 'bg-emerald-600 text-white' : isLoss ? 'bg-red-600 text-white' : 'bg-stone-600 text-slate-200'
+                                          }`}>
+                                            {isWin ? '+ 승리' : isLoss ? '- 패배' : '= 무승부'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
