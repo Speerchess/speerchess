@@ -13,6 +13,9 @@ export interface UserRecord {
   username: string;
   access_token?: string;
   avatar_url?: string;
+  role?: UserTier;
+  is_vip?: boolean | number;
+  vip_key?: string;
   created_at?: string;
   last_login_at?: string;
 }
