@@ -33,8 +33,8 @@ export interface UserGameItem {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const rawPlatform = (searchParams.get('platform') || 'lichess').toLowerCase().replace(/[\.\_\-\s]/g, '');
-    const isChessCom = rawPlatform.includes('chess') || rawPlatform === 'chesscom';
+    const rawPlatform = (searchParams.get('platform') || 'lichess').toLowerCase().trim();
+    const isChessCom = rawPlatform === 'chesscom' || rawPlatform === 'chess.com' || rawPlatform.startsWith('chess');
     const platform = isChessCom ? 'chesscom' : 'lichess';
 
     const username = searchParams.get('username')?.trim();
