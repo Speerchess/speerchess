@@ -3663,8 +3663,13 @@ export default function Home() {
                 isDark ? 'bg-stone-900 border-stone-850 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
               }`}
             >
-              <div className="p-2 rounded-xl bg-yellow-500/10 text-yellow-500 w-fit">
-                <Award size={18} />
+              <div className="flex items-center justify-between w-full">
+                <div className="p-2 rounded-xl bg-yellow-500/10 text-yellow-500 w-fit">
+                  <Award size={18} />
+                </div>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500">
+                  {language === 'ko' ? '준비중' : 'Soon'}
+                </span>
               </div>
               <div>
                 <div className="font-extrabold text-xs">{language === 'ko' ? '오늘의 체슬' : 'Chessle'}</div>
@@ -3886,6 +3891,40 @@ export default function Home() {
     );
   };
 
+  const renderComingSoonScreen = (title: string, icon: string, desc?: string, onBack?: () => void) => {
+    const isDark = darkMode === 'dark';
+    return (
+      <div className={`flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4 ${
+        isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+      }`}>
+        <div className="w-16 h-16 rounded-3xl bg-blue-500/10 flex items-center justify-center text-3xl shadow-inner animate-pulse">
+          {icon}
+        </div>
+        <div className="space-y-2 max-w-sm">
+          <h3 className="text-base font-black tracking-tight">{title}</h3>
+          <div>
+            <span className="text-[11px] font-black text-amber-500 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full inline-block">
+              🚧 {language === 'ko' ? '준비중입니다...' : 'Coming Soon...'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 font-medium pt-2 leading-relaxed">
+            {desc || (language === 'ko' 
+              ? '더 많은 유저 대국 데이터가 수집된 후 정식 오픈될 예정입니다. 조금만 기다려 주세요!' 
+              : 'This feature will be unlocked once more game records are collected!')}
+          </p>
+        </div>
+        {onBack && (
+          <button 
+            onClick={onBack}
+            className="mt-4 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-white text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-sm"
+          >
+            {language === 'ko' ? '돌아가기' : 'Go Back'}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const renderMoreTab = () => {
     const isDark = darkMode === 'dark';
     
@@ -3921,7 +3960,12 @@ export default function Home() {
                     isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
                   }`}
                 >
-                  <span className="flex items-center gap-2">✨ {language === 'ko' ? '탁월 저장소' : 'Brilliant Repository'}</span>
+                  <span className="flex items-center gap-2">
+                    ✨ {language === 'ko' ? '탁월 저장소' : 'Brilliant Repository'}
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500">
+                      {language === 'ko' ? '준비중' : 'Soon'}
+                    </span>
+                  </span>
                   <ChevronRight size={14} />
                 </button>
                 <button 
@@ -3930,7 +3974,12 @@ export default function Home() {
                     isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
                   }`}
                 >
-                  <span className="flex items-center gap-2">💀 {language === 'ko' ? '블런더 저장소' : 'Blunder Repository'}</span>
+                  <span className="flex items-center gap-2">
+                    💀 {language === 'ko' ? '블런더 저장소' : 'Blunder Repository'}
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500">
+                      {language === 'ko' ? '준비중' : 'Soon'}
+                    </span>
+                  </span>
                   <ChevronRight size={14} />
                 </button>
                 <button 
@@ -4817,47 +4866,14 @@ export default function Home() {
         {moreSubView === 'brilliant' && (
           <div className="space-y-4">
             {renderSubHeader(language === 'ko' ? '탁월 저장소' : 'Brilliant Repository')}
-            <div className="overflow-y-auto max-h-[60vh] no-scrollbar">
-              {brilliantItems.length === 0 ? (
-                <div className="text-center py-20 text-slate-400 font-bold text-xs">
-                  {language === 'ko' ? '저장된 묘수가 없습니다.' : 'No Brilliant moves saved yet.'}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-4 pb-12">
-                  {brilliantItems.map((item, idx) => (
-                    <div 
-                      key={`${item.game.hashid}-${idx}`}
-                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
-                      className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative ${
-                        isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
-                      }`}
-                    >
-                      <span className="absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full bg-cyan-650 text-white shadow-sm">
-                        Brilliant
-                      </span>
-                      <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-850 relative">
-                        <Chessboard 
-                          options={{
-                            position: item.afterFen,
-                            boardOrientation: item.moveIndex % 2 === 0 ? 'white' : 'black',
-                            allowDragging: false,
-                            pieces: getCustomPieces()
-                          }}
-                        />
-                      </div>
-                      <div className="w-full text-center space-y-0.5">
-                        <div className="text-xs font-black truncate">
-                          {item.whitePlayer} vs {item.blackPlayer}
-                        </div>
-                        <div className="text-[10px] font-black text-cyan-500">
-                          {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {renderComingSoonScreen(
+              language === 'ko' ? '탁월 저장소 (Brilliant Vault)' : 'Brilliant Repository',
+              '✨',
+              language === 'ko' 
+                ? '분석된 대국의 묘수(Brilliant) 모음 기능은 대국 데이터가 충분히 축적된 후 오픈됩니다. 준비중입니다...' 
+                : 'The brilliant moves vault will be available soon after database build-up.',
+              () => setMoreSubView('menu')
+            )}
           </div>
         )}
 
@@ -4865,47 +4881,14 @@ export default function Home() {
         {moreSubView === 'blunder' && (
           <div className="space-y-4">
             {renderSubHeader(language === 'ko' ? '블런더 저장소' : 'Blunder Repository')}
-            <div className="overflow-y-auto max-h-[60vh] no-scrollbar">
-              {blunderItems.length === 0 ? (
-                <div className="text-center py-20 text-slate-400 font-bold text-xs">
-                  {language === 'ko' ? '저장된 실수가 없습니다.' : 'No Blunders saved yet.'}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-4 pb-12">
-                  {blunderItems.map((item, idx) => (
-                    <div 
-                      key={`${item.game.hashid}-${idx}`}
-                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
-                      className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative ${
-                        isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
-                      }`}
-                    >
-                      <span className="absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-650 text-white shadow-sm">
-                        Blunder
-                      </span>
-                      <div className="w-full aspect-square overflow-hidden rounded-xl border border-stone-850 relative">
-                        <Chessboard 
-                          options={{
-                            position: item.afterFen,
-                            boardOrientation: item.moveIndex % 2 === 0 ? 'white' : 'black',
-                            allowDragging: false,
-                            pieces: getCustomPieces()
-                          }}
-                        />
-                      </div>
-                      <div className="w-full text-center space-y-0.5">
-                        <div className="text-xs font-black truncate">
-                          {item.whitePlayer} vs {item.blackPlayer}
-                        </div>
-                        <div className="text-[10px] font-black text-red-500">
-                          {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {renderComingSoonScreen(
+              language === 'ko' ? '블런더 저장소 (Blunder Vault)' : 'Blunder Repository',
+              '💀',
+              language === 'ko' 
+                ? '대국 중 발생한 치명적 실수 모음 기능은 대국 데이터가 충분히 축적된 후 오픈됩니다. 준비중입니다...' 
+                : 'The blunder mistakes vault will be available soon after database build-up.',
+              () => setMoreSubView('menu')
+            )}
           </div>
         )}
       </div>
@@ -6738,86 +6721,23 @@ export default function Home() {
 
         {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'analyze' && renderAnalyzeTab()}
 
-        {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'chessle' && !chesslePuzzle && (
+        {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'chessle' && (
           <div className={`flex-1 flex flex-col p-5 overflow-y-auto no-scrollbar justify-between ${
             darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
           }`}>
-            <div className="space-y-6 pt-4">
-              <div className="flex items-center gap-2 border-b pb-4 border-stone-850">
-                <SpeerLogo className={`w-6 h-6 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
-                <h3 className="font-black text-sm uppercase tracking-widest">{language === 'ko' ? '🧩 Chessle (체슬)' : '🧩 Chessle'}</h3>
-              </div>
-              
-              <div className={`rounded-2xl p-5 border text-xs leading-relaxed space-y-2 ${
-                darkMode === 'dark' ? 'bg-stone-900/30 border-stone-850 text-slate-350' : 'bg-stone-100 border-stone-250'
-              }`}>
-                <p className="font-bold text-xs">{language === 'ko' ? '🏁 오프닝 맞추기 퍼즐' : '🏁 Opening Guessing Game'}</p>
-                <p>
-                  {language === 'ko' 
-                    ? '상대방이 둔 오프닝 5수(10개 반수)를 유추하고 입력하는 퍼즐 게임입니다.' 
-                    : 'Guess the first 10 half-moves of a standard chess match.'}
-                </p>
-                <p>
-                  {language === 'ko'
-                    ? '시도 결과에 따라 맞춘 위치와 수순을 워드(Wordle) 스타일 색상으로 평가해 줍니다.'
-                    : 'Get color-coded feedback indicating correct, present, or wrong moves.'}
-                </p>
-              </div>
-              
-              <div className="space-y-4">
-                <button 
-                  onClick={() => {
-                    const randomGame = allGames.length > 0 ? allGames[Math.floor(Math.random() * allGames.length)] : PRESET_GAMES[0];
-                    startChessleGame(randomGame);
-                  }}
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold py-3.5 rounded-2xl text-xs shadow-md transition-all active:scale-95 cursor-pointer"
-                >
-                  {language === 'ko' ? '오늘의 랜덤 체슬 시작하기' : 'Start Random Chessle'}
-                </button>
-                
-                <div className="space-y-1.5 pt-3 border-t border-stone-850/60">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
-                    {language === 'ko' ? '고유 게임 코드로 참여' : 'Enter Custom Game Code'}
-                  </label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text"
-                      placeholder={language === 'ko' ? '예: hashid 입력' : 'Game hashid...'}
-                      value={chessleCodeInput}
-                      onChange={(e) => setChessleCodeInput(e.target.value)}
-                      className={`flex-1 p-2.5 rounded-xl border text-xs font-bold ${
-                        darkMode === 'dark' ? 'bg-stone-900 border-stone-800 text-white' : 'bg-white border-stone-200 text-slate-800'
-                      }`}
-                    />
-                    <button 
-                      onClick={async () => {
-                        const code = chessleCodeInput.trim();
-                        if (!code) return;
-                        setView('LOADING');
-                        setProgress(0);
-                        setQuote(quotes[Math.floor(Math.random() * quotes.length)]);
-                        try {
-                          const res = await fetch(`/api/games?hashid=${code}&t=${Date.now()}`);
-                          if (!res.ok) throw new Error();
-                          const data = await res.json();
-                          startChessleGame({
-                            hashid: code,
-                            analysis_json: data.analysis_json,
-                            pgn: data.pgn
-                          });
-                        } catch (e) {
-                          alert(language === 'ko' ? '존재하지 않는 코드입니다.' : 'Invalid code.');
-                          setView('INPUT');
-                        }
-                      }}
-                      className="px-4 bg-slate-800 hover:bg-slate-750 text-white font-bold rounded-xl text-xs cursor-pointer active:scale-95 transition-all"
-                    >
-                      {language === 'ko' ? '입장' : 'Enter'}
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <div className="flex items-center gap-2 border-b pb-4 border-stone-850 shrink-0">
+              <SpeerLogo className={`w-6 h-6 ${darkMode === 'dark' ? 'text-slate-100' : 'text-slate-800'}`} />
+              <h3 className="font-black text-sm uppercase tracking-widest">{language === 'ko' ? '🧩 Chessle (체슬)' : '🧩 Chessle'}</h3>
             </div>
+            
+            {renderComingSoonScreen(
+              language === 'ko' ? '오늘의 체슬 (Daily Chessle)' : 'Daily Chessle',
+              '🧩',
+              language === 'ko' 
+                ? '대국 데이터베이스가 충분히 축적된 후 정식 오픈될 예정입니다. 준비중입니다...' 
+                : 'The daily chessle game will be unlocked once more game records are collected!',
+              () => setActiveTab('home')
+            )}
           </div>
         )}
 
@@ -8206,6 +8126,7 @@ export default function Home() {
             </button>
 
             {/* Brilliant Repository button */}
+            {/* Brilliant Repository button */}
             <button 
               onClick={() => {
                 setIsMenuOpen(false);
@@ -8216,6 +8137,9 @@ export default function Home() {
               <div className="flex items-center gap-3">
                 <span className="text-xl">!!</span>
                 <span className="text-sm">{language === 'ko' ? '탁월 저장소' : 'Brilliant Repository'}</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600">
+                  {language === 'ko' ? '준비중' : 'Soon'}
+                </span>
               </div>
               <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
             </button>
@@ -8231,6 +8155,9 @@ export default function Home() {
               <div className="flex items-center gap-3">
                 <span className="text-xl">??</span>
                 <span className="text-sm">{language === 'ko' ? '블런더 저장소' : 'Blunder Repository'}</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600">
+                  {language === 'ko' ? '준비중' : 'Soon'}
+                </span>
               </div>
               <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
             </button>
@@ -8239,14 +8166,16 @@ export default function Home() {
             <button 
               onClick={() => {
                 setIsMenuOpen(false);
-                const randomGame = allGames.length > 0 ? allGames[Math.floor(Math.random() * allGames.length)] : PRESET_GAMES[0];
-                startChessleGame(randomGame);
+                setActiveTab('chessle');
               }}
               className="w-full text-left p-4 rounded-xl border border-stone-200/60 hover:bg-stone-50 transition-all font-bold text-slate-800 flex justify-between items-center cursor-pointer group"
             >
               <div className="flex items-center gap-3">
                 <span className="text-xl">🧩</span>
                 <span className="text-sm">{language === 'ko' ? 'Chessle (체슬)' : 'Chessle (Puzzle)'}</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600">
+                  {language === 'ko' ? '준비중' : 'Soon'}
+                </span>
               </div>
               <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
             </button>
@@ -8355,50 +8284,14 @@ export default function Home() {
               <div className="w-10"></div>
             </header>
             
-            <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
-              {brilliantItems.length === 0 ? (
-                <div className="text-center py-20 text-slate-400 font-bold text-xs">
-                  {language === 'ko' ? '저장된 탁월/우수 수가 없습니다. 경기를 분석해서 남겨보세요!' : 'No Brilliant or Great moves stored yet.'}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-12">
-                  {brilliantItems.map((item, idx) => (
-                    <div 
-                      key={`${item.game.hashid}-${idx}`}
-                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
-                      className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative ${
-                        darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
-                      }`}
-                    >
-                      <span className={`absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm ${
-                        item.classification === 'Brilliant' ? 'bg-cyan-500 text-white' : 'bg-sky-500 text-white'
-                      }`}>
-                        {item.classification === 'Brilliant' ? '!! Brilliant' : '! Great'}
-                      </span>
-                      <div className={`w-full aspect-square overflow-hidden rounded-xl border relative ${
-                        darkMode === 'dark' ? 'border-stone-800' : 'border-stone-150'
-                      }`}>
-                        <Chessboard 
-                          options={{
-                            position: item.afterFen,
-                            boardOrientation: item.moveIndex % 2 === 0 ? 'white' : 'black',
-                            allowDragging: false
-                          }}
-                        />
-                      </div>
-                      <div className="w-full text-center space-y-0.5">
-                        <div className="text-xs font-black truncate">
-                          {item.whitePlayer} vs {item.blackPlayer}
-                        </div>
-                        <div className="text-[10px] font-black text-cyan-500">
-                          {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {renderComingSoonScreen(
+              language === 'ko' ? '!! 탁월 저장소' : '!! Brilliant Repository',
+              '✨',
+              language === 'ko' 
+                ? '더 많은 유저 대국 데이터가 수집된 후 정식 오픈될 예정입니다. 준비중입니다...' 
+                : 'Under preparation... Coming soon as game database grows!',
+              () => setView('INPUT')
+            )}
           </div>
         )}
 
@@ -8424,48 +8317,14 @@ export default function Home() {
               <div className="w-10"></div>
             </header>
             
-            <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
-              {blunderItems.length === 0 ? (
-                <div className="text-center py-20 text-slate-400 font-bold text-xs">
-                  {language === 'ko' ? '저장된 블런더 실수가 없습니다. 체스판의 평화가 유지되고 있습니다!' : 'No Blunders stored yet.'}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-12">
-                  {blunderItems.map((item, idx) => (
-                    <div 
-                      key={`${item.game.hashid}-${idx}`}
-                      onClick={() => setSelectedHighlight({ ...item, showAfterBoard: false })}
-                      className={`rounded-2xl border p-3 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col items-center gap-2 hover:-translate-y-0.5 active:scale-98 relative ${
-                        darkMode === 'dark' ? 'bg-stone-900 border-stone-850 text-white' : 'bg-white border-stone-200/60 text-slate-800'
-                      }`}
-                    >
-                      <span className="absolute top-5 left-5 z-10 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm">
-                        ?? Blunder
-                      </span>
-                      <div className={`w-full aspect-square overflow-hidden rounded-xl border relative ${
-                        darkMode === 'dark' ? 'border-stone-800' : 'border-stone-150'
-                      }`}>
-                        <Chessboard 
-                          options={{
-                            position: item.afterFen,
-                            boardOrientation: item.moveIndex % 2 === 0 ? 'white' : 'black',
-                            allowDragging: false
-                          }}
-                        />
-                      </div>
-                      <div className="w-full text-center space-y-0.5">
-                        <div className="text-xs font-black truncate">
-                          {item.whitePlayer} vs {item.blackPlayer}
-                        </div>
-                        <div className="text-[10px] font-black text-red-500">
-                          {Math.floor(item.moveIndex / 2) + 1}. {item.moveIndex % 2 === 0 ? 'W' : 'B'}: {item.moveSan}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {renderComingSoonScreen(
+              language === 'ko' ? '?? 블런더 저장소' : '?? Blunder Repository',
+              '💀',
+              language === 'ko' 
+                ? '더 많은 유저 대국 데이터가 수집된 후 정식 오픈될 예정입니다. 준비중입니다...' 
+                : 'Under preparation... Coming soon as game database grows!',
+              () => setView('INPUT')
+            )}
           </div>
         )}
 
