@@ -643,13 +643,20 @@ export interface OpeningTreeRecord {
   updated_at: string;
 }
 
+export interface SaveTreeResult {
+  saved: boolean;
+  storage: 'D1' | 'memory' | 'none';
+  dbFound: boolean;
+  error?: string;
+}
+
 export async function saveOpeningTree(
   userId: string,
   tier: UserTier | boolean | number,
   maxPly: number,
   totalGames: number,
   treeJson: string
-): Promise<boolean> {
+): Promise<SaveTreeResult> {
   const db = await getDb();
   const uid = userId.toLowerCase();
   const now = new Date().toISOString();
@@ -664,17 +671,15 @@ export async function saveOpeningTree(
   }
 
   if (db) {
+    // Ensure user exists first (needed for FK constraint)
     try {
-      try {
-        await db.prepare(`
-          INSERT INTO users (id, username, is_vip, role) 
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET 
-            is_vip = excluded.is_vip,
-            role = excluded.role
-        `).bind(uid, uid, vipInt, vipInt === 2 ? 'vvip' : (vipInt === 1 ? 'vip' : 'free')).run();
-      } catch (e) {}
+      await db.prepare(`INSERT INTO users (id, username, is_vip) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET is_vip = excluded.is_vip`).bind(uid, uid, vipInt).run();
+    } catch (userErr: any) {
+      console.error("saveOpeningTree: user upsert failed:", userErr?.message);
+    }
 
+    // Try to save the tree
+    try {
       await db.prepare(`
         INSERT INTO user_opening_trees (user_id, is_vip, max_ply, total_games, tree_json, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -685,9 +690,10 @@ export async function saveOpeningTree(
           tree_json = excluded.tree_json,
           updated_at = excluded.updated_at
       `).bind(uid, vipInt, maxPly, totalGames, treeJson, now).run();
-      return true;
-    } catch (e) {
-      console.error("Failed to save opening tree in D1, ensuring schema:", e);
+      return { saved: true, storage: 'D1', dbFound: true };
+    } catch (e: any) {
+      console.error("saveOpeningTree D1 insert failed:", e?.message);
+      // Try with schema refresh
       await ensureSchema(db);
       try {
         await db.prepare(`
@@ -700,24 +706,28 @@ export async function saveOpeningTree(
             tree_json = excluded.tree_json,
             updated_at = excluded.updated_at
         `).bind(uid, vipInt, maxPly, totalGames, treeJson, now).run();
-        return true;
-      } catch (retryErr) {
-        console.error("saveOpeningTree retry failed:", retryErr);
+        return { saved: true, storage: 'D1', dbFound: true };
+      } catch (retryErr: any) {
+        console.error("saveOpeningTree D1 retry failed:", retryErr?.message);
+        // Fall through to memory
+        memoryStore.openingTrees[uid] = {
+          user_id: uid, is_vip: vipInt > 0,
+          tier: vipInt === 2 ? 'vvip' : (vipInt === 1 ? 'vip' : 'free'),
+          max_ply: maxPly, total_games: totalGames, tree_json: treeJson, updated_at: now
+        };
+        return { saved: false, storage: 'memory', dbFound: true, error: `D1 save failed: ${retryErr?.message || 'unknown'}` };
       }
     }
   }
   
+  // No D1 found at all
   memoryStore.openingTrees[uid] = {
-    user_id: uid,
-    is_vip: vipInt > 0,
+    user_id: uid, is_vip: vipInt > 0,
     tier: vipInt === 2 ? 'vvip' : (vipInt === 1 ? 'vip' : 'free'),
-    max_ply: maxPly,
-    total_games: totalGames,
-    tree_json: treeJson,
-    updated_at: now
+    max_ply: maxPly, total_games: totalGames, tree_json: treeJson, updated_at: now
   };
   saveFallbackFile('./opening_trees_fallback.json', memoryStore.openingTrees);
-  return true;
+  return { saved: false, storage: 'memory', dbFound: false, error: 'No D1 database binding found' };
 }
 
 export async function getOpeningTreeRecord(userId: string): Promise<OpeningTreeRecord | null> {

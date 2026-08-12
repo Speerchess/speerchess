@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLinkedAccounts, getUserTier, saveOpeningTree, getOpeningTreeRecord, UserTier } from '../../../lib/db';
+import { getLinkedAccounts, getUserTier, saveOpeningTree, getOpeningTreeRecord, UserTier, SaveTreeResult } from '../../../lib/db';
 import { buildOpeningTreeFromGames, queryOpeningTree, GameInputForTree, CompactOpeningTree } from '../../../lib/openingTree';
 import { verifyAndExtractSession } from '../../../lib/session';
 
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/opening-tree - Accepts client-compiled Opening Tree or server fallback with Cooldown checks
+// POST /api/opening-tree - Accepts client-compiled Opening Tree with Cooldown checks
 export async function POST(request: NextRequest) {
   try {
     const sessionUserId = await getSessionUserId(request);
@@ -135,16 +135,24 @@ export async function POST(request: NextRequest) {
       const totalGames = Math.min(body.totalGames || tree.totalGames || 0, maxAllowedGames);
       const maxPly = Math.min(body.maxPly || tree.maxPly || maxAllowedPly, maxAllowedPly);
 
-      await saveOpeningTree(sessionUserId, tier, maxPly, totalGames, JSON.stringify(tree));
+      const saveResult = await saveOpeningTree(sessionUserId, tier, maxPly, totalGames, JSON.stringify(tree));
 
       return NextResponse.json({
-        success: true,
-        message: `성공적으로 ${totalGames}개의 대국을 분석하여 오프닝 트리가 저장되었습니다!`,
+        success: saveResult.saved,
+        message: saveResult.saved
+          ? `성공적으로 ${totalGames}개의 대국을 분석하여 오프닝 트리가 D1에 저장되었습니다!`
+          : `트리 계산 완료 (${totalGames}개 대국). 저장: ${saveResult.storage}. ${saveResult.error || ''}`,
         totalGames,
         tier,
         isVip: tier !== 'free',
         maxPly,
-        updatedAt: tree.updatedAt || new Date().toISOString()
+        updatedAt: tree.updatedAt || new Date().toISOString(),
+        _debug: {
+          storage: saveResult.storage,
+          dbFound: saveResult.dbFound,
+          error: saveResult.error || null,
+          userId: sessionUserId
+        }
       });
     }
 

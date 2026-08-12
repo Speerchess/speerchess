@@ -666,13 +666,17 @@ export default function Home() {
       });
 
       const saveData = await saveRes.json();
-      if (saveRes.ok && saveData.success) {
-        if (typeof window !== 'undefined' && currentUser) {
-          try {
-            localStorage.setItem(`speerchess_opening_tree_${currentUser.id}`, JSON.stringify(tree));
-          } catch (e) {}
-        }
+      
+      // Always save to localStorage as reliable fallback
+      if (typeof window !== 'undefined' && currentUser) {
+        try {
+          localStorage.setItem(`speerchess_opening_tree_${currentUser.id}`, JSON.stringify(tree));
+        } catch (e) {}
+      }
 
+      const debugInfo = saveData._debug;
+      
+      if (saveRes.ok && saveData.success) {
         setSyncProgress({
           current: tree.totalGames,
           total: tree.totalGames,
@@ -680,13 +684,52 @@ export default function Home() {
         });
         alert(language === 'ko' ? `✅ 성공적으로 ${tree.totalGames}개의 대국을 분석하여 나만의 오프닝 트리를 구축했습니다!` : `✅ Successfully synced ${tree.totalGames} games into your opening tree!`);
         
-        // Refresh query
+        // Refresh query from localStorage tree directly (more reliable)
         const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-        const qRes = await fetch(`/api/opening-tree?fen=${encodeURIComponent(activeFen)}&color=${playerTreeColor}`);
-        if (qRes.ok) {
-          const qData = await qRes.json();
-          setPlayerTreeData(qData);
-        }
+        const localResult = queryOpeningTree(tree, activeFen, playerTreeColor);
+        setPlayerTreeData({
+          synced: true,
+          total: localResult.total,
+          white: localResult.white,
+          draws: localResult.draws,
+          black: localResult.black,
+          moves: localResult.moves,
+          totalGamesIndexed: tree.totalGames || 0,
+          maxPly: tree.maxPly || 30,
+          tier: saveData.tier || 'free',
+          isVip: saveData.isVip || false,
+          canSync: true,
+          remainingHours: 0,
+          updatedAt: tree.updatedAt || new Date().toISOString()
+        });
+      } else if (saveRes.ok && !saveData.success) {
+        // Server responded OK but D1 save failed - tree is in localStorage so it still works
+        setSyncProgress({
+          current: tree.totalGames,
+          total: tree.totalGames,
+          stage: '⚠️ 로컬 저장 완료 (D1 연결 실패)'
+        });
+        
+        const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        const localResult = queryOpeningTree(tree, activeFen, playerTreeColor);
+        setPlayerTreeData({
+          synced: true,
+          total: localResult.total,
+          white: localResult.white,
+          draws: localResult.draws,
+          black: localResult.black,
+          moves: localResult.moves,
+          totalGamesIndexed: tree.totalGames || 0,
+          maxPly: tree.maxPly || 30,
+          tier: saveData.tier || 'free',
+          isVip: saveData.isVip || false,
+          canSync: true,
+          remainingHours: 0,
+          updatedAt: tree.updatedAt || new Date().toISOString()
+        });
+        
+        const dbStatus = debugInfo ? `\nDB found: ${debugInfo.dbFound}\nStorage: ${debugInfo.storage}\nError: ${debugInfo.error || 'none'}` : '';
+        alert(`⚠️ ${tree.totalGames}개 대국 트리 계산 완료!\n\n로컬 저장은 성공했으나 D1 데이터베이스 저장에 실패했습니다.${dbStatus}\n\n오프닝 북은 이 브라우저에서 정상 작동합니다.`);
       } else {
         if (saveRes.status === 429) {
           setCanSyncTree(false);
