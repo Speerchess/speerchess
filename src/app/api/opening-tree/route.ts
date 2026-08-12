@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
     }
 
     const maxAllowedGames = tier === 'vvip' ? 10000 : (tier === 'vip' ? 5000 : 1000);
-    const maxAllowedPly = tier === 'vvip' ? 120 : (tier === 'vip' ? 60 : 30);
+    const maxAllowedPly = tier === 'vvip' ? 40 : (tier === 'vip' ? 35 : 30);
 
     let body: any = {};
     try {

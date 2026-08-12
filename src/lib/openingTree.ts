@@ -17,14 +17,22 @@ export interface PositionStats {
   moves: Record<string, MoveStats>;
 }
 
+// Compact move tuple: [san, whiteWins, draws, blackWins]
+export type CompactMoveTuple = [string, number, number, number];
+
 export interface CompactOpeningTree {
   version: number;
   totalGames: number;
   maxPly: number;
   updatedAt: string;
-  white: Record<string, PositionStats>;
-  black: Record<string, PositionStats>;
-  all: Record<string, PositionStats>;
+  // Positions when user played as white: FEN -> { [uci]: [san, wWins, draws, bWins] }
+  w?: Record<string, Record<string, CompactMoveTuple>>;
+  // Positions when user played as black: FEN -> { [uci]: [san, wWins, draws, bWins] }
+  b?: Record<string, Record<string, CompactMoveTuple>>;
+  // Legacy v1 format compatibility
+  white?: Record<string, PositionStats>;
+  black?: Record<string, PositionStats>;
+  all?: Record<string, PositionStats>;
 }
 
 export interface GameInputForTree {
@@ -119,21 +127,24 @@ export function parseGameMoves(game: GameInputForTree): { moves: string[]; outco
 }
 
 /**
- * Builds an ultra-compact, high-speed pure-statistics Opening Tree
- * (Zero extra storage - all games matched on client side in real-time)
+ * Builds an ultra-compact, high-speed pure-statistics Opening Tree (Version 2)
+ * Compresses positions using tuple structures [san, whiteWins, draws, blackWins],
+ * reducing JSON payload by over 2,000x to fit easily in Cloudflare D1 and localStorage.
  */
 export function buildOpeningTreeFromGames(
   games: GameInputForTree[],
   maxPly: number = 30
 ): CompactOpeningTree {
+  // Cap maxPly to reasonable opening book depth (max 40)
+  const actualPly = Math.min(Math.max(maxPly, 10), 40);
+
   const tree: CompactOpeningTree = {
-    version: 1,
+    version: 2,
     totalGames: 0,
-    maxPly,
+    maxPly: actualPly,
     updatedAt: new Date().toISOString(),
-    white: {},
-    black: {},
-    all: {}
+    w: {},
+    b: {}
   };
 
   for (const game of games) {
@@ -143,81 +154,47 @@ export function buildOpeningTreeFromGames(
     tree.totalGames++;
     const { moves, outcome, userColor } = parsed;
     const isUserWhite = userColor === 'white';
+    const targetMap = isUserWhite ? tree.w! : tree.b!;
 
     const chess = new Chess();
-    const limit = Math.min(moves.length, maxPly);
+    const limit = Math.min(moves.length, actualPly);
 
     for (let i = 0; i < limit; i++) {
       const currentFen = normalizeFen(chess.fen());
       const moveSan = moves[i];
-      let moveUci = '';
+      let moveObj;
 
       try {
-        const moveObj = chess.move(moveSan);
+        moveObj = chess.move(moveSan);
         if (!moveObj) break;
-        moveUci = `${moveObj.from}${moveObj.to}${moveObj.promotion || ''}`;
       } catch (err) {
         break;
       }
 
-      // Record in 'all' tree
-      recordPositionMove(tree.all, currentFen, moveSan, moveUci, outcome);
+      const moveUci = `${moveObj.from}${moveObj.to}${moveObj.promotion || ''}`;
 
-      // Record in user's color-specific tree
-      if (isUserWhite) {
-        recordPositionMove(tree.white, currentFen, moveSan, moveUci, outcome);
-      } else {
-        recordPositionMove(tree.black, currentFen, moveSan, moveUci, outcome);
+      if (!targetMap[currentFen]) {
+        targetMap[currentFen] = {};
       }
+
+      const pos = targetMap[currentFen];
+      if (!pos[moveUci]) {
+        pos[moveUci] = [moveSan, 0, 0, 0];
+      }
+
+      const m = pos[moveUci];
+      if (outcome === 'white') m[1]++;
+      else if (outcome === 'black') m[3]++;
+      else m[2]++;
     }
   }
 
   return tree;
 }
 
-function recordPositionMove(
-  treeMap: Record<string, PositionStats>,
-  fen: string,
-  san: string,
-  uci: string,
-  outcome: 'white' | 'black' | 'draw'
-) {
-  if (!treeMap[fen]) {
-    treeMap[fen] = {
-      total: 0,
-      white: 0,
-      draws: 0,
-      black: 0,
-      moves: {}
-    };
-  }
-
-  const pos = treeMap[fen];
-  pos.total++;
-  if (outcome === 'white') pos.white++;
-  else if (outcome === 'black') pos.black++;
-  else pos.draws++;
-
-  if (!pos.moves[uci]) {
-    pos.moves[uci] = {
-      san,
-      uci,
-      count: 0,
-      white: 0,
-      draws: 0,
-      black: 0
-    };
-  }
-
-  const m = pos.moves[uci];
-  m.count++;
-  if (outcome === 'white') m.white++;
-  else if (outcome === 'black') m.black++;
-  else m.draws++;
-}
-
 /**
  * Queries position stats and candidate next moves from the tree
+ * Supports both v2 compact tuple format and v1 legacy format.
  */
 export function queryOpeningTree(
   tree: CompactOpeningTree | null,
@@ -244,15 +221,81 @@ export function queryOpeningTree(
     return { total: 0, white: 0, draws: 0, black: 0, moves: [] };
   }
 
-  const targetMap = colorFilter === 'white' ? tree.white : colorFilter === 'black' ? tree.black : tree.all;
   const normalized = normalizeFen(fen);
-  const pos = targetMap ? targetMap[normalized] : null;
 
-  if (!pos) {
-    return { total: 0, white: 0, draws: 0, black: 0, moves: [] };
+  // 1. Legacy v1 support (if tree has white/black/all objects)
+  if (tree.white && tree.black) {
+    const targetMap = colorFilter === 'white' ? tree.white : colorFilter === 'black' ? tree.black : tree.all;
+    const pos = targetMap ? targetMap[normalized] : null;
+
+    if (!pos) {
+      return { total: 0, white: 0, draws: 0, black: 0, moves: [] };
+    }
+
+    const moveList = Object.values(pos.moves || {})
+      .map(m => {
+        const cnt = m.count || 1;
+        return {
+          san: m.san,
+          uci: m.uci,
+          count: m.count,
+          white: m.white,
+          draws: m.draws,
+          black: m.black,
+          whitePct: Math.round((m.white / cnt) * 100),
+          drawPct: Math.round((m.draws / cnt) * 100),
+          blackPct: Math.round((m.black / cnt) * 100)
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      total: pos.total,
+      white: pos.white,
+      draws: pos.draws,
+      black: pos.black,
+      moves: moveList
+    };
   }
 
-  const moveList = Object.values(pos.moves || {})
+  // 2. Version 2 Compact Tuple Format
+  const wPos = tree.w ? tree.w[normalized] : null;
+  const bPos = tree.b ? tree.b[normalized] : null;
+
+  const moveMap = new Map<string, { san: string; uci: string; white: number; draws: number; black: number; count: number }>();
+  let totalW = 0, totalD = 0, totalB = 0;
+
+  const processPos = (pos: Record<string, CompactMoveTuple> | null | undefined) => {
+    if (!pos) return;
+    for (const [uci, data] of Object.entries(pos)) {
+      const [san, w, d, b] = data;
+      const count = w + d + b;
+      totalW += w;
+      totalD += d;
+      totalB += b;
+
+      if (!moveMap.has(uci)) {
+        moveMap.set(uci, { san, uci, white: w, draws: d, black: b, count });
+      } else {
+        const existing = moveMap.get(uci)!;
+        existing.white += w;
+        existing.draws += d;
+        existing.black += b;
+        existing.count += count;
+      }
+    }
+  };
+
+  if (colorFilter === 'white') {
+    processPos(wPos);
+  } else if (colorFilter === 'black') {
+    processPos(bPos);
+  } else {
+    processPos(wPos);
+    processPos(bPos);
+  }
+
+  const moves = Array.from(moveMap.values())
     .map(m => {
       const cnt = m.count || 1;
       return {
@@ -269,11 +312,6 @@ export function queryOpeningTree(
     })
     .sort((a, b) => b.count - a.count);
 
-  return {
-    total: pos.total,
-    white: pos.white,
-    draws: pos.draws,
-    black: pos.black,
-    moves: moveList
-  };
+  const total = totalW + totalD + totalB;
+  return { total, white: totalW, draws: totalD, black: totalB, moves };
 }

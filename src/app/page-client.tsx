@@ -522,7 +522,7 @@ export default function Home() {
 
     setIsSyncingTree(true);
     const targetMax = userTier === 'vvip' ? 10000 : (userTier === 'vip' || isVip ? 5000 : 1000);
-    const targetPly = userTier === 'vvip' ? 120 : (userTier === 'vip' || isVip ? 60 : 30);
+    const targetPly = userTier === 'vvip' ? 40 : (userTier === 'vip' || isVip ? 35 : 30);
 
     setSyncProgress({ current: 0, total: targetMax, stage: language === 'ko' ? '대국 기록 수집 준비 중...' : 'Preparing...' });
 
