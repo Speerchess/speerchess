@@ -82,7 +82,7 @@ async function fetchLichessGames(username: string, max: number) {
   for (const line of lines) {
     try {
       const g = JSON.parse(line);
-      const isWhite = (g.players?.white?.user?.name || g.players?.white?.name || '').toLowerCase() === lowerUser;
+      const isWhite = (g.players?.white?.user?.id || g.players?.white?.user?.name || g.players?.white?.name || '').toLowerCase() === lowerUser;
       const userColor: 'white' | 'black' = isWhite ? 'white' : 'black';
 
       let userResult: 'win' | 'loss' | 'draw' = 'draw';

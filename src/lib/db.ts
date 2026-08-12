@@ -577,7 +577,7 @@ export async function removeLinkedAccount(userId: string, platform: string, plat
 
   if (db) {
     try {
-      await db.prepare("DELETE FROM linked_accounts WHERE user_id = ? AND platform = ? AND platform_username = ? AND is_primary = 0")
+      await db.prepare("DELETE FROM linked_accounts WHERE user_id = ? AND platform = ? AND LOWER(platform_username) = LOWER(?) AND is_primary = 0")
         .bind(uid, platform, trimmed).run();
       return true;
     } catch (e) {
