@@ -429,6 +429,43 @@ export default function Home() {
               }
             })
             .catch(() => {});
+
+          // Automatically load user opening tree from D1 or localStorage
+          fetch('/api/opening-tree')
+            .then(r => r.json())
+            .then(treeData => {
+              if (treeData && treeData.synced) {
+                setPlayerTreeData(treeData);
+                setCanSyncTree(treeData.canSync ?? true);
+                setSyncCooldownRemainingHours(treeData.remainingHours || 0);
+              } else if (typeof window !== 'undefined') {
+                const cachedRaw = localStorage.getItem(`speerchess_opening_tree_${data.user.id}`);
+                if (cachedRaw) {
+                  try {
+                    const cachedTree = JSON.parse(cachedRaw);
+                    const initFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+                    const localResult = queryOpeningTree(cachedTree, initFen, 'all');
+                    setPlayerTreeData({
+                      synced: true,
+                      total: localResult.total,
+                      white: localResult.white,
+                      draws: localResult.draws,
+                      black: localResult.black,
+                      moves: localResult.moves,
+                      recentGames: localResult.recentGames || [],
+                      totalGamesIndexed: cachedTree.totalGames || 0,
+                      maxPly: cachedTree.maxPly || 30,
+                      tier: data.user.role || 'free',
+                      isVip: data.user.role !== 'free',
+                      canSync: true,
+                      remainingHours: 0,
+                      updatedAt: cachedTree.updatedAt || new Date().toISOString()
+                    });
+                  } catch (e) {}
+                }
+              }
+            })
+            .catch(() => {});
         } else {
           setCurrentUser(null);
           setLinkedAccounts([]);
@@ -518,18 +555,28 @@ export default function Home() {
               for (const line of lines) {
                 try {
                   const g = JSON.parse(line);
-                  const isWhite = g.players?.white?.user?.id?.toLowerCase() === acc.platform_username.toLowerCase() ||
-                                  g.players?.white?.user?.name?.toLowerCase() === acc.platform_username.toLowerCase();
+                  const isWhite = (g.players?.white?.user?.id || g.players?.white?.user?.name || '').toLowerCase() === acc.platform_username.toLowerCase();
                   let outcome = 'draw';
                   if (g.winner === 'white') outcome = '1-0';
                   else if (g.winner === 'black') outcome = '0-1';
                   else outcome = '1/2-1/2';
 
+                  const whiteName = g.players?.white?.user?.name || g.players?.white?.name || g.players?.white?.user?.id || 'White';
+                  const blackName = g.players?.black?.user?.name || g.players?.black?.name || g.players?.black?.user?.id || 'Black';
+
                   collectedGames.push({
+                    id: `lichess_${g.id}`,
+                    url: `https://lichess.org/${g.id}`,
+                    platform: 'lichess',
                     pgn: g.pgn || g.moves,
                     moves: g.moves ? g.moves.split(' ') : undefined,
                     userColor: isWhite ? 'white' : 'black',
-                    result: outcome
+                    result: outcome,
+                    whiteUsername: whiteName,
+                    blackUsername: blackName,
+                    whiteRating: g.players?.white?.rating || 1500,
+                    blackRating: g.players?.black?.rating || 1500,
+                    date: new Date(g.createdAt || Date.now()).toISOString()
                   });
                 } catch (e) {}
               }
@@ -539,7 +586,7 @@ export default function Home() {
             if (archRes.ok) {
               const { archives } = await archRes.json();
               if (Array.isArray(archives)) {
-                const recent = archives.slice(-6).reverse();
+                const recent = archives.slice(-12).reverse();
                 for (const aUrl of recent) {
                   if (collectedGames.length >= targetMax) break;
                   const mRes = await fetch(aUrl);
@@ -548,16 +595,26 @@ export default function Home() {
                     if (Array.isArray(mGames)) {
                       for (const mg of mGames.reverse()) {
                         if (collectedGames.length >= targetMax) break;
-                        const isWhite = mg.white?.username?.toLowerCase() === acc.platform_username.toLowerCase();
+                        const isWhite = (mg.white?.username || '').toLowerCase() === acc.platform_username.toLowerCase();
                         let outcome = 'draw';
                         if (mg.white?.result === 'win') outcome = '1-0';
                         else if (mg.black?.result === 'win') outcome = '0-1';
                         else outcome = '1/2-1/2';
 
+                        const gameId = mg.url ? mg.url.split('/').pop() : mg.end_time;
+
                         collectedGames.push({
+                          id: `chesscom_${gameId}`,
+                          url: mg.url,
+                          platform: 'chesscom',
                           pgn: mg.pgn,
                           userColor: isWhite ? 'white' : 'black',
-                          result: outcome
+                          result: outcome,
+                          whiteUsername: mg.white?.username || 'White',
+                          blackUsername: mg.black?.username || 'Black',
+                          whiteRating: mg.white?.rating || 1500,
+                          blackRating: mg.black?.rating || 1500,
+                          date: new Date(mg.end_time ? mg.end_time * 1000 : Date.now()).toISOString()
                         });
                       }
                     }
@@ -936,6 +993,8 @@ export default function Home() {
   const [isActivatingVip, setIsActivatingVip] = useState<boolean>(false);
   const [isSyncingTree, setIsSyncingTree] = useState<boolean>(false);
   const [playerTreeData, setPlayerTreeData] = useState<any>(null);
+  const [positionViewMode, setPositionViewMode] = useState<'MOVES' | 'GAMES'>('MOVES');
+  const [positionGamesSort, setPositionGamesSort] = useState<'date' | 'result' | 'rating'>('date');
   const [bestMoveArrowEnabled, setBestMoveArrowEnabled] = useState<boolean>(true);
   const [isAnalyzeEngineEnabled, setIsAnalyzeEngineEnabled] = useState<boolean>(true);
   const [analyzeSubTab, setAnalyzeSubTab] = useState<'BOOK' | 'TREE' | 'SETTINGS'>('BOOK');
@@ -5639,41 +5698,181 @@ export default function Home() {
                             )}
                           </button>
                         </div>
-                      ) : (!playerTreeData.moves || playerTreeData.moves.length === 0) ? (
-                        <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
-                          이 포지션에서 플레이한 내 전적 기록이 없습니다.
-                        </div>
                       ) : (
-                        <div className="space-y-1">
-                          {playerTreeData.moves.slice(0, 8).map((move: any, idx: number) => {
-                            const total = move.count;
-                            const wPct = move.whitePct;
-                            const dPct = move.drawPct;
-                            const bPct = move.blackPct;
-                            return (
-                              <div 
-                                key={idx} 
-                                onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
-                                className={`flex items-center justify-between text-[12px] font-bold border-b border-stone-800/20 pb-1.5 pt-1 cursor-pointer rounded-lg px-1 transition-colors ${isDark ? 'hover:bg-stone-800/50' : 'hover:bg-stone-100'}`}
-                              >
-                                <span className="w-12 text-left text-blue-500 font-black text-[13px]">
-                                  {move.san}
-                                </span>
-                                <div className="flex items-center gap-1.5 flex-1 justify-center mx-2 shrink-0">
-                                  <span className="text-[10px] text-slate-400 font-extrabold w-8 text-right shrink-0">{wPct}%</span>
-                                  <div className="flex-1 h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner max-w-[80px]">
-                                    <div style={{ width: `${wPct}%` }} className="bg-slate-200 h-full" title={`백: ${wPct}%`} />
-                                    <div style={{ width: `${dPct}%` }} className="bg-slate-400 h-full" title={`무: ${dPct}%`} />
-                                    <div style={{ width: `${bPct}%` }} className="bg-slate-800 h-full" title={`흑: ${bPct}%`} />
-                                  </div>
-                                  <span className="text-[10px] text-slate-500 font-extrabold w-8 text-left shrink-0">{bPct}%</span>
-                                </div>
-                                <div className="w-14 text-right text-[11px] text-slate-400 font-extrabold">
-                                  {total}회
+                        <div className="space-y-2">
+                          {/* Sub-view switcher: Moves vs Matching Games */}
+                          <div className={`flex p-0.5 rounded-lg border text-[10px] font-bold ${
+                            isDark ? 'bg-stone-950 border-stone-850' : 'bg-stone-100 border-stone-200'
+                          }`}>
+                            <button
+                              onClick={() => setPositionViewMode('MOVES')}
+                              className={`flex-1 py-1 rounded transition-all cursor-pointer ${
+                                positionViewMode === 'MOVES' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              📊 다음 수 ({playerTreeData.moves?.length || 0})
+                            </button>
+                            <button
+                              onClick={() => setPositionViewMode('GAMES')}
+                              className={`flex-1 py-1 rounded transition-all cursor-pointer ${
+                                positionViewMode === 'GAMES' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              ⚔️ 관련 대국 ({playerTreeData.recentGames?.length || 0})
+                            </button>
+                          </div>
+
+                          {positionViewMode === 'MOVES' ? (
+                            (!playerTreeData.moves || playerTreeData.moves.length === 0) ? (
+                              <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
+                                이 포지션에서 플레이한 다음 수 기록이 없습니다.
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                {playerTreeData.moves.slice(0, 8).map((move: any, idx: number) => {
+                                  const total = move.count;
+                                  const wPct = move.whitePct;
+                                  const dPct = move.drawPct;
+                                  const bPct = move.blackPct;
+                                  return (
+                                    <div 
+                                      key={idx} 
+                                      onClick={() => handleAnalyzePieceDrop({ sourceSquare: move.uci.slice(0, 2), targetSquare: move.uci.slice(2, 4), piece: 'p' })}
+                                      className={`flex items-center justify-between text-[12px] font-bold border-b border-stone-800/20 pb-1.5 pt-1 cursor-pointer rounded-lg px-1 transition-colors ${isDark ? 'hover:bg-stone-800/50' : 'hover:bg-stone-100'}`}
+                                    >
+                                      <span className="w-12 text-left text-blue-500 font-black text-[13px]">
+                                        {move.san}
+                                      </span>
+                                      <div className="flex items-center gap-1.5 flex-1 justify-center mx-2 shrink-0">
+                                        <span className="text-[10px] text-slate-400 font-extrabold w-8 text-right shrink-0">{wPct}%</span>
+                                        <div className="flex-1 h-2 rounded-full overflow-hidden flex border border-stone-800 shadow-inner max-w-[80px]">
+                                          <div style={{ width: `${wPct}%` }} className="bg-slate-200 h-full" title={`백: ${wPct}%`} />
+                                          <div style={{ width: `${dPct}%` }} className="bg-slate-400 h-full" title={`무: ${dPct}%`} />
+                                          <div style={{ width: `${bPct}%` }} className="bg-slate-800 h-full" title={`흑: ${bPct}%`} />
+                                        </div>
+                                        <span className="text-[10px] text-slate-500 font-extrabold w-8 text-left shrink-0">{bPct}%</span>
+                                      </div>
+                                      <div className="w-14 text-right text-[11px] text-slate-400 font-extrabold">
+                                        {total}회
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )
+                          ) : (
+                            /* Matching Games View with Live Sorting */
+                            <div className="space-y-1.5">
+                              {/* Sort Buttons Bar */}
+                              <div className="flex items-center justify-between gap-1 pb-1">
+                                <span className="text-[9px] font-bold text-slate-400">정렬:</span>
+                                <div className={`flex p-0.5 rounded-md border text-[9px] font-bold ${
+                                  isDark ? 'bg-stone-950 border-stone-850' : 'bg-stone-100 border-stone-200'
+                                }`}>
+                                  <button
+                                    onClick={() => setPositionGamesSort('date')}
+                                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                      positionGamesSort === 'date' ? 'bg-blue-600 text-white' : 'text-slate-400'
+                                    }`}
+                                  >
+                                    🕒 최신순
+                                  </button>
+                                  <button
+                                    onClick={() => setPositionGamesSort('result')}
+                                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                      positionGamesSort === 'result' ? 'bg-blue-600 text-white' : 'text-slate-400'
+                                    }`}
+                                  >
+                                    🏆 승리순
+                                  </button>
+                                  <button
+                                    onClick={() => setPositionGamesSort('rating')}
+                                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                      positionGamesSort === 'rating' ? 'bg-blue-600 text-white' : 'text-slate-400'
+                                    }`}
+                                  >
+                                    🎯 레이팅순
+                                  </button>
                                 </div>
                               </div>
-                            );
-                          })}
+
+                              {(!playerTreeData.recentGames || playerTreeData.recentGames.length === 0) ? (
+                                <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
+                                  이 포지션이 등장한 대국 기록이 없습니다.
+                                </div>
+                              ) : (
+                                <div className="space-y-1 max-h-60 overflow-y-auto no-scrollbar pr-0.5">
+                                  {playerTreeData.recentGames
+                                    .slice()
+                                    .sort((a: any, b: any) => {
+                                      if (positionGamesSort === 'result') {
+                                        const scoreA = a.userResult === 'win' ? 3 : a.userResult === 'draw' ? 2 : 1;
+                                        const scoreB = b.userResult === 'win' ? 3 : b.userResult === 'draw' ? 2 : 1;
+                                        if (scoreB !== scoreA) return scoreB - scoreA;
+                                      } else if (positionGamesSort === 'rating') {
+                                        const oppRatingA = a.userColor === 'white' ? (a.blackRating || 0) : (a.whiteRating || 0);
+                                        const oppRatingB = b.userColor === 'white' ? (b.blackRating || 0) : (b.whiteRating || 0);
+                                        if (oppRatingB !== oppRatingA) return oppRatingB - oppRatingA;
+                                      }
+                                      return new Date(b.date).getTime() - new Date(a.date).getTime();
+                                    })
+                                    .map((g: any, gIdx: number) => {
+                                      const opponent = g.userColor === 'white' ? (g.black || 'Black') : (g.white || 'White');
+                                      const opponentRating = g.userColor === 'white' ? (g.blackRating || 1500) : (g.whiteRating || 1500);
+                                      const isWin = g.userResult === 'win';
+                                      const isLoss = g.userResult === 'loss';
+
+                                      return (
+                                        <div
+                                          key={gIdx}
+                                          onClick={() => {
+                                            if (g.pgn) {
+                                              openUserGame({
+                                                id: g.id,
+                                                platform: g.platform || 'lichess',
+                                                url: g.url || '',
+                                                pgn: g.pgn,
+                                                timeClass: 'rapid',
+                                                timeControl: '',
+                                                date: g.date,
+                                                white: { username: g.white, rating: g.whiteRating, result: g.userColor === 'white' && isWin ? 'win' : '' },
+                                                black: { username: g.black, rating: g.blackRating, result: g.userColor === 'black' && isWin ? 'win' : '' },
+                                                userColor: g.userColor,
+                                                userResult: g.userResult || 'draw'
+                                              });
+                                            }
+                                          }}
+                                          className={`p-2 rounded-xl border flex items-center justify-between text-xs transition-all cursor-pointer active:scale-98 ${
+                                            isDark ? 'bg-stone-900 border-stone-800 hover:bg-stone-850' : 'bg-white border-stone-200 hover:bg-stone-50'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <span className="text-[11px] font-black">{g.userColor === 'white' ? '⚪' : '⚫'}</span>
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-1 truncate">
+                                                <span className="font-extrabold text-[11px] truncate max-w-[100px]">{opponent}</span>
+                                                <span className="text-[9px] text-slate-400 font-bold">({opponentRating})</span>
+                                              </div>
+                                              <div className="text-[9px] text-slate-500 font-bold">
+                                                {new Date(g.date).toLocaleDateString()} • {g.platform === 'lichess' ? 'Lichess' : 'Chess.com'}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          <div className="flex items-center gap-1.5 shrink-0">
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                                              isWin ? 'bg-emerald-600 text-white' : isLoss ? 'bg-red-600 text-white' : 'bg-stone-600 text-slate-200'
+                                            }`}>
+                                              {isWin ? '+ 승리' : isLoss ? '- 패배' : '= 무승부'}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )
                     ) : (!openingData || !openingData.moves || openingData.moves.length === 0) ? (

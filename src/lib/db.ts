@@ -679,7 +679,7 @@ export async function getOpeningTreeRecord(userId: string): Promise<OpeningTreeR
   if (db) {
     try {
       const record = await db.prepare("SELECT * FROM user_opening_trees WHERE user_id = ?").bind(uid).first();
-      if (record) {
+      if (record && record.tree_json) {
         const rawVip = Number(record.is_vip) || 0;
         return {
           user_id: record.user_id as string,
@@ -696,6 +696,10 @@ export async function getOpeningTreeRecord(userId: string): Promise<OpeningTreeR
       await ensureSchema(db);
     }
   }
+  
+  if (!memoryStore.openingTrees[uid]) {
+    memoryStore.openingTrees = loadFallbackFile<Record<string, OpeningTreeRecord>>('./opening_trees_fallback.json', {});
+  }
   return memoryStore.openingTrees[uid] || null;
 }
 
@@ -708,17 +712,22 @@ export async function getUserTier(userId: string): Promise<UserTier> {
       if (record) {
         if (record.role === 'vvip' || record.is_vip === 2) return 'vvip';
         if (record.role === 'vip' || record.is_vip === 1 || Boolean(record.is_vip)) return 'vip';
-        return 'free';
       }
-    } catch (e) {
-      await ensureSchema(db);
-    }
+    } catch (e) {}
   }
-  const mem = memoryStore.vipUsers[uid];
-  if (mem) {
-    if (mem.tier === 'vvip' || mem.isVip === 2) return 'vvip';
-    if (mem.tier === 'vip' || mem.isVip) return 'vip';
+
+  if (!memoryStore.users[uid]) {
+    memoryStore.users = loadFallbackFile<Record<string, UserRecord>>('./users_fallback.json', {});
   }
+  const memUser = memoryStore.users[uid];
+  if (memUser?.role === 'vvip' || memUser?.is_vip === 2) return 'vvip';
+  if (memUser?.role === 'vip' || memUser?.is_vip === 1 || Boolean(memUser?.is_vip)) return 'vip';
+
+  const vipEntry = memoryStore.vipUsers[uid];
+  if (vipEntry?.tier) return vipEntry.tier;
+  if (vipEntry?.isVip === 2) return 'vvip';
+  if (vipEntry?.isVip === 1 || vipEntry?.isVip === true) return 'vip';
+
   return 'free';
 }
 

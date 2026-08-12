@@ -5,6 +5,7 @@ export const runtime = 'edge';
 export interface UserGameItem {
   id: string;
   platform: 'lichess' | 'chesscom';
+  accountUsername?: string;
   url: string;
   pgn: string;
   timeClass: 'bullet' | 'blitz' | 'rapid' | 'daily' | 'classical';
@@ -124,6 +125,7 @@ async function fetchLichessGames(username: string, max: number) {
       games.push({
         id: `lichess_${g.id}`,
         platform: 'lichess',
+        accountUsername: username,
         url: `https://lichess.org/${g.id}`,
         pgn: pgnText,
         timeClass,
@@ -248,6 +250,7 @@ async function fetchChessComGames(username: string, max: number) {
         games.push({
           id: `chesscom_${gameId}`,
           platform: 'chesscom',
+          accountUsername: cleanUsername,
           url: g.url || '',
           pgn: g.pgn || '',
           timeClass,
