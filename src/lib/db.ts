@@ -290,7 +290,26 @@ export async function ensureSchema(db: any) {
 
 // Fetch database D1 binding or fallback
 export async function getDb() {
-  const db = (process.env as any).DB || null;
+  let db: any = null;
+
+  try {
+    const { getRequestContext } = await import('@cloudflare/next-on-pages');
+    const ctx = getRequestContext();
+    if (ctx && ctx.env) {
+      db = (ctx.env as any).DB || (ctx.env as any).DATABASE || (ctx.env as any).speerchess_db || null;
+    }
+  } catch (e) {}
+
+  if (!db) {
+    db = (process.env as any).DB || 
+         (process.env as any).DATABASE || 
+         (globalThis as any).DB || 
+         (globalThis as any).DATABASE || 
+         (globalThis as any).__cf_env__?.DB || 
+         (globalThis as any).__cf_env__?.DATABASE || 
+         null;
+  }
+
   if (db && !schemaInitialized) {
     await ensureSchema(db);
   }
@@ -628,7 +647,13 @@ export async function saveOpeningTree(
   if (db) {
     try {
       try {
-        await db.prepare("INSERT OR IGNORE INTO users (id, username, is_vip) VALUES (?, ?, ?)").bind(uid, uid, vipInt).run();
+        await db.prepare(`
+          INSERT INTO users (id, username, is_vip, role) 
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET 
+            is_vip = excluded.is_vip,
+            role = excluded.role
+        `).bind(uid, uid, vipInt, vipInt === 2 ? 'vvip' : (vipInt === 1 ? 'vip' : 'free')).run();
       } catch (e) {}
 
       await db.prepare(`
