@@ -135,8 +135,8 @@ export function buildOpeningTreeFromGames(
   games: GameInputForTree[],
   maxPly: number = 30
 ): CompactOpeningTree {
-  // Cap maxPly to reasonable opening book depth (max 40)
-  const actualPly = Math.min(Math.max(maxPly, 10), 40);
+  // Cap maxPly to reasonable opening book depth (max 60)
+  const actualPly = Math.min(Math.max(maxPly, 10), 60);
 
   const tree: CompactOpeningTree = {
     version: 2,

@@ -121,8 +121,7 @@ export async function POST(request: NextRequest) {
       }, { status: 429 });
     }
 
-    const maxAllowedGames = tier === 'vvip' ? 10000 : (tier === 'vip' ? 5000 : 1000);
-    const maxAllowedPly = tier === 'vvip' ? 40 : (tier === 'vip' ? 35 : 30);
+    const maxAllowedPly = tier === 'vvip' ? 50 : (tier === 'vip' ? 35 : 25);
 
     let body: any = {};
     try {
@@ -132,7 +131,7 @@ export async function POST(request: NextRequest) {
     // 1. Client-Side Compiled Tree (Instant & Zero Server Timeout)
     if (body && body.tree) {
       const tree: CompactOpeningTree = body.tree;
-      const totalGames = Math.min(body.totalGames || tree.totalGames || 0, maxAllowedGames);
+      const totalGames = body.totalGames || tree.totalGames || 0;
       const maxPly = Math.min(body.maxPly || tree.maxPly || maxAllowedPly, maxAllowedPly);
 
       const saveResult = await saveOpeningTree(sessionUserId, tier, maxPly, totalGames, JSON.stringify(tree));
@@ -163,7 +162,8 @@ export async function POST(request: NextRequest) {
       if (!accounts || accounts.length === 0) {
         accounts = [{ user_id: sessionUserId, platform: 'lichess', platform_username: sessionUserId, is_primary: true }];
       }
-      const quota = Math.ceil(maxAllowedGames / accounts.length);
+      const maxFallbackGames = 10000;
+      const quota = Math.ceil(maxFallbackGames / accounts.length);
       for (const acc of accounts) {
         if (acc.platform === 'lichess') {
           games.push(...(await fetchLichessGamesForTree(acc.platform_username, quota)));
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '불러올 수 있는 대국 기록이 없습니다.' }, { status: 404 });
     }
 
-    const tree = buildOpeningTreeFromGames(games.slice(0, maxAllowedGames), maxAllowedPly);
+    const tree = buildOpeningTreeFromGames(games, maxAllowedPly);
     await saveOpeningTree(sessionUserId, tier, maxAllowedPly, tree.totalGames, JSON.stringify(tree));
 
     return NextResponse.json({

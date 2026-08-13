@@ -521,10 +521,11 @@ export default function Home() {
     }
 
     setIsSyncingTree(true);
-    const targetMax = userTier === 'vvip' ? 10000 : (userTier === 'vip' || isVip ? 5000 : 1000);
-    const targetPly = userTier === 'vvip' ? 40 : (userTier === 'vip' || isVip ? 35 : 30);
+    const targetPly = userTier === 'vvip' ? 50 : (userTier === 'vip' || isVip ? 35 : 25);
+    const monthsLimit = userTier === 'vvip' ? 9999 : (userTier === 'vip' || isVip ? 36 : 12);
+    const sinceTimestamp = userTier === 'vvip' ? null : Date.now() - (monthsLimit * 30.5 * 24 * 60 * 60 * 1000);
 
-    setSyncProgress({ current: 0, total: targetMax, stage: language === 'ko' ? '대국 기록 수집 준비 중...' : 'Preparing...' });
+    setSyncProgress({ current: 0, total: 100, stage: language === 'ko' ? '대국 기록 수집 준비 중...' : 'Preparing...' });
 
     try {
       // 1. Get linked accounts (always include primary Lichess account, deduplicated)
@@ -544,20 +545,20 @@ export default function Home() {
         }
       }
 
-      const quotaPerAccount = Math.ceil(targetMax / accountsToSync.length);
       const collectedGames: GameInputForTree[] = [];
 
       for (let i = 0; i < accountsToSync.length; i++) {
         const acc = accountsToSync[i];
         setSyncProgress({
           current: collectedGames.length,
-          total: targetMax,
-          stage: `${acc.platform === 'lichess' ? '⚡ Lichess' : '♟️ Chess.com'} (${acc.platform_username}) 대국 수집 중...`
+          total: Math.max(100, collectedGames.length + 50),
+          stage: `${acc.platform === 'lichess' ? '⚡ Lichess' : '♟️ Chess.com'} (${acc.platform_username}) 대국 수집 중... (${collectedGames.length}개 수집됨)`
         });
 
         try {
           if (acc.platform === 'lichess') {
-            const url = `https://lichess.org/api/games/user/${encodeURIComponent(acc.platform_username)}?max=${quotaPerAccount}&moves=true&pgnInJson=true&clocks=false&evals=false`;
+            const sinceParam = sinceTimestamp ? `&since=${Math.floor(sinceTimestamp)}` : '';
+            const url = `https://lichess.org/api/games/user/${encodeURIComponent(acc.platform_username)}?moves=true&pgnInJson=true&clocks=false&evals=false${sinceParam}`;
             const res = await fetch(url, { headers: { 'Accept': 'application/x-ndjson' } });
             if (res.ok) {
               const text = await res.text();
@@ -588,34 +589,34 @@ export default function Home() {
             if (archRes.ok) {
               const { archives } = await archRes.json();
               if (Array.isArray(archives)) {
-                const recent = archives.slice(-12).reverse();
+                const recent = monthsLimit >= 9999 ? archives.slice().reverse() : archives.slice(-monthsLimit).reverse();
                 for (const aUrl of recent) {
-                  if (collectedGames.length >= targetMax) break;
-                  const mRes = await fetch(aUrl);
-                  if (mRes.ok) {
-                    const { games: mGames } = await mRes.json();
-                    if (Array.isArray(mGames)) {
-                      for (const mg of mGames.reverse()) {
-                        if (collectedGames.length >= targetMax) break;
-                        const isWhite = (mg.white?.username || '').toLowerCase() === acc.platform_username.toLowerCase();
-                        let outcome = 'draw';
-                        if (mg.white?.result === 'win') outcome = '1-0';
-                        else if (mg.black?.result === 'win') outcome = '0-1';
-                        else outcome = '1/2-1/2';
+                  try {
+                    const mRes = await fetch(aUrl);
+                    if (mRes.ok) {
+                      const { games: mGames } = await mRes.json();
+                      if (Array.isArray(mGames)) {
+                        for (const mg of mGames.reverse()) {
+                          const isWhite = (mg.white?.username || '').toLowerCase() === acc.platform_username.toLowerCase();
+                          let outcome = 'draw';
+                          if (mg.white?.result === 'win') outcome = '1-0';
+                          else if (mg.black?.result === 'win') outcome = '0-1';
+                          else outcome = '1/2-1/2';
 
-                        const gameId = mg.url ? mg.url.split('/').pop() : mg.end_time;
+                          const gameId = mg.url ? mg.url.split('/').pop() : mg.end_time;
 
-                        collectedGames.push({
-                          id: `chesscom_${gameId}`,
-                          url: mg.url,
-                          platform: 'chesscom',
-                          pgn: mg.pgn,
-                          userColor: isWhite ? 'white' : 'black',
-                          result: outcome
-                        });
+                          collectedGames.push({
+                            id: `chesscom_${gameId}`,
+                            url: mg.url,
+                            platform: 'chesscom',
+                            pgn: mg.pgn,
+                            userColor: isWhite ? 'white' : 'black',
+                            result: outcome
+                          });
+                        }
                       }
                     }
-                  }
+                  } catch (mErr) {}
                 }
               }
             }
@@ -9009,16 +9010,18 @@ export default function Home() {
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
                         🌳 오프닝 전적 데이터 동기화
                       </span>
-                      <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
-                        isVip 
-                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                        userTier === 'vvip'
+                          ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                          : isVip
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                           : 'bg-stone-800 text-slate-400 border-stone-700'
                       }`}>
-                        {isVip ? '✨ VIP (5,000판 / 30수)' : '기본 (1,000판 / 15수)'}
+                        {userTier === 'vvip' ? '💎 VVIP (전체 기간 / 50수)' : (isVip ? '✨ VIP (최근 3년 / 35수)' : '기본 (최근 1년 / 25수)')}
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-400 font-medium">
-                      연동된 모든 계정의 최근 대국을 일괄 수집하여 개인화 오프닝 트리를 구축합니다.
+                      연동된 모든 계정의 대국 기록을 수집하여 개인화 오프닝 트리를 구축합니다.
                     </p>
                     {syncProgress && (
                       <div className={`p-2.5 rounded-xl border text-xs space-y-1.5 animate-fade-in ${
@@ -9029,15 +9032,6 @@ export default function Home() {
                             <Loader2 size={12} className="animate-spin text-blue-500" />
                             {syncProgress.stage}
                           </span>
-                          <span className="text-slate-400 font-extrabold">
-                            {syncProgress.total > 0 ? Math.round((syncProgress.current / syncProgress.total) * 100) : 0}%
-                          </span>
-                        </div>
-                        <div className="w-full bg-stone-800 rounded-full h-1.5 overflow-hidden border border-stone-700">
-                          <div 
-                            className="bg-gradient-to-r from-blue-600 to-emerald-500 h-full transition-all duration-300 rounded-full" 
-                            style={{ width: `${syncProgress.total > 0 ? Math.min(100, Math.round((syncProgress.current / syncProgress.total) * 100)) : 0}%` }} 
-                          />
                         </div>
                       </div>
                     )}
@@ -9052,7 +9046,7 @@ export default function Home() {
                           <span>{syncProgress?.stage || '전적 분석 및 트리 생성 중...'}</span>
                         </>
                       ) : (
-                        <span>📥 내 전적 {userTier === 'vvip' ? '10,000' : (userTier === 'vip' || isVip ? '5,000' : '1,000')}판 오프닝 트리 동기화</span>
+                        <span>📥 내 전적 오프닝 트리 동기화 ({userTier === 'vvip' ? '전체 기간 • 50수' : (userTier === 'vip' || isVip ? '최근 3년 • 35수' : '최근 1년 • 25수')})</span>
                       )}
                     </button>
                   </div>
