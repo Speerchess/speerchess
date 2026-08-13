@@ -1995,39 +1995,37 @@ export default function Home() {
   useEffect(() => {
     if (activeTab !== 'analyze' || analyzeSubTab !== 'BOOK') return;
     
-    const fetchOpeningData = async () => {
-      const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-      setIsLoadingOpening(true);
-      setOpeningData(null);
-      setPlayerTreeData(null);
-      
-      try {
-        if (explorerDb === 'player') {
-          // Instant cache load from localStorage if available
-          if (typeof window !== 'undefined' && currentUser) {
-            const cachedRaw = localStorage.getItem(`speerchess_opening_tree_${currentUser.id}`);
-            if (cachedRaw) {
-              try {
-                const cachedTree = JSON.parse(cachedRaw);
-                const localResult = queryOpeningTree(cachedTree, activeFen, playerTreeColor);
-                setPlayerTreeData({
-                  synced: true,
-                  total: localResult.total,
-                  white: localResult.white,
-                  draws: localResult.draws,
-                  black: localResult.black,
-                  moves: localResult.moves,
-                  totalGamesIndexed: cachedTree.totalGames || 0,
-                  maxPly: cachedTree.maxPly || 30,
-                  tier: userTier,
-                  isVip: userTier !== 'free',
-                  canSync: canSyncTree,
-                  updatedAt: cachedTree.updatedAt
-                });
-              } catch (e) {}
-            }
-          }
+    const activeFen = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
+    // 1. Instant Synchronous Query for Player Opening Tree (0ms delay, zero layout collapse)
+    if (explorerDb === 'player') {
+      if (typeof window !== 'undefined' && currentUser) {
+        const cachedRaw = localStorage.getItem(`speerchess_opening_tree_v2_${currentUser.id}`) || localStorage.getItem(`speerchess_opening_tree_${currentUser.id}`);
+        if (cachedRaw) {
+          try {
+            const cachedTree = JSON.parse(cachedRaw);
+            const localResult = queryOpeningTree(cachedTree, activeFen, playerTreeColor);
+            setPlayerTreeData({
+              synced: true,
+              total: localResult.total,
+              white: localResult.white,
+              draws: localResult.draws,
+              black: localResult.black,
+              moves: localResult.moves,
+              totalGamesIndexed: cachedTree.totalGames || 0,
+              maxPly: cachedTree.maxPly || 30,
+              tier: userTier,
+              isVip: userTier !== 'free',
+              canSync: canSyncTree,
+              updatedAt: cachedTree.updatedAt
+            });
+          } catch (e) {}
+        }
+      }
+
+      // Background D1 fetch if needed
+      const fetchD1Tree = async () => {
+        try {
           const res = await fetch(`/api/opening-tree?fen=${encodeURIComponent(activeFen)}&color=${playerTreeColor}`);
           if (res.ok) {
             const data = await res.json();
@@ -2035,25 +2033,33 @@ export default function Home() {
               setPlayerTreeData(data);
             }
           }
+        } catch (e) {}
+      };
+      fetchD1Tree();
+      return;
+    }
+
+    // 2. Remote Lichess / Masters opening database (Debounced without unmounting)
+    const fetchOpeningData = async () => {
+      setIsLoadingOpening(true);
+      try {
+        const dbParam = explorerDb === 'masters' ? 'masters' : 'lichess';
+        let url = `/api/explorer?db=${dbParam}&fen=${encodeURIComponent(activeFen)}`;
+        if (dbParam === 'lichess') {
+          if (explorerSpeeds.length > 0) {
+            url += `&speeds=${explorerSpeeds.join(',')}`;
+          }
+          if (explorerRatings.length > 0) {
+            url += `&ratings=${explorerRatings.join(',')}`;
+          }
+        }
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          setOpeningData(data);
         } else {
-          const dbParam = explorerDb === 'masters' ? 'masters' : 'lichess';
-          let url = `/api/explorer?db=${dbParam}&fen=${encodeURIComponent(activeFen)}`;
-          if (dbParam === 'lichess') {
-            if (explorerSpeeds.length > 0) {
-              url += `&speeds=${explorerSpeeds.join(',')}`;
-            }
-            if (explorerRatings.length > 0) {
-              url += `&ratings=${explorerRatings.join(',')}`;
-            }
-          }
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            setOpeningData(data);
-          } else {
-            const errData = await res.json().catch(() => ({}));
-            setOpeningData({ moves: [], error: errData.error || 'ERROR' });
-          }
+          const errData = await res.json().catch(() => ({}));
+          setOpeningData({ moves: [], error: errData.error || 'ERROR' });
         }
       } catch (e) {
         console.error(e);
@@ -2062,9 +2068,9 @@ export default function Home() {
       }
     };
     
-    const debounce = setTimeout(fetchOpeningData, 250);
+    const debounce = setTimeout(fetchOpeningData, 150);
     return () => clearTimeout(debounce);
-  }, [activeAnalysisFen, activeTab, analyzeSubTab, explorerDb, playerTreeColor, explorerSpeeds.join(','), explorerRatings.join(',')]);
+  }, [currentNodeId, activeAnalysisFen, activeTab, analyzeSubTab, explorerDb, playerTreeColor, explorerSpeeds.join(','), explorerRatings.join(',')]);
 
   // Chess OCR: Load TensorFlow.js and Filters.js scripts dynamically
   useEffect(() => {
@@ -5796,11 +5802,7 @@ export default function Home() {
 
                   {/* Moves List Area */}
                   <div className="flex-1 space-y-1">
-                    {isLoadingOpening ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                      </div>
-                    ) : explorerDb === 'player' ? (
+                    {explorerDb === 'player' ? (
                       !playerTreeData?.synced ? (
                         <div className="text-center py-6 px-3 space-y-3">
                           <div className="w-10 h-10 mx-auto rounded-xl bg-blue-600/15 border border-blue-500/30 flex items-center justify-center text-xl text-blue-400 font-black">
@@ -5975,6 +5977,10 @@ export default function Home() {
                           )}
                         </div>
                       )
+                    ) : (isLoadingOpening && (!openingData || !openingData.moves)) ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                      </div>
                     ) : (!openingData || !openingData.moves || openingData.moves.length === 0) ? (
                       <div className="text-center py-6 px-4 space-y-2">
                         <p className="text-xs text-slate-500 font-bold italic">
@@ -5992,7 +5998,7 @@ export default function Home() {
                         )}
                       </div>
                     ) : (
-                      <div className="space-y-1">
+                      <div className={`space-y-1 transition-opacity duration-150 ${isLoadingOpening ? 'opacity-60' : 'opacity-100'}`}>
                         {openingData.moves.slice(0, 8).map((move: any, idx: number) => {
                           const total = move.white + move.draws + move.black;
                           const wPct = total > 0 ? (move.white / total) * 100 : 0;
