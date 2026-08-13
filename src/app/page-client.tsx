@@ -6213,8 +6213,8 @@ export default function Home() {
   };
 
   return (
-    <div className="h-screen sm:h-auto sm:min-h-screen bg-stone-900 text-slate-800 flex justify-center items-center p-0 sm:p-4 font-sans selection:bg-slate-200 selection:text-slate-900 antialiased">
-      <div className="w-full max-w-md h-screen sm:h-[880px] sm:min-h-[850px] sm:max-h-[900px] sm:rounded-3xl sm:shadow-2xl sm:border border-stone-800 bg-[#fafaf9] flex flex-col overflow-hidden relative">
+    <div className="h-[100dvh] min-h-[100dvh] max-h-[100dvh] sm:h-auto sm:min-h-screen bg-stone-900 text-slate-800 flex justify-center items-center p-0 sm:p-4 font-sans selection:bg-slate-200 selection:text-slate-900 antialiased overflow-hidden">
+      <div className="w-full max-w-md h-[100dvh] max-h-[100dvh] sm:h-[880px] sm:min-h-[850px] sm:max-h-[900px] sm:rounded-3xl sm:shadow-2xl sm:border border-stone-800 bg-[#fafaf9] flex flex-col overflow-hidden relative">
         
         {/* VIEW: LOADING (Matching Screenshot 2) */}
         {view === 'LOADING' && (
@@ -6289,10 +6289,10 @@ export default function Home() {
 
         {/* VIEW: HISTORY (Match History - Screenshot 5) */}
         {view === 'HISTORY' && (
-          <div className={`flex-1 flex flex-col overflow-hidden ${
+          <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${
             darkMode === 'dark' ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
           }`}>
-            <header className={`flex items-center justify-between py-3 px-4 border-b z-10 shadow-sm shrink-0 ${
+            <header className={`flex items-center justify-between py-3 px-4 border-b z-20 shadow-sm shrink-0 sticky top-0 ${
               darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200/60'
             }`}>
               <button 
@@ -6342,7 +6342,7 @@ export default function Home() {
 
             {!currentUser ? (
               /* Require Lichess OAuth Login View */
-              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+              <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 text-center">
                 <div className={`p-6 rounded-3xl border text-center space-y-4 max-w-sm w-full shadow-lg ${
                   darkMode === 'dark' ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200'
                 }`}>
@@ -6368,10 +6368,10 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <>
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 {/* Account Filter Bar (All vs Specific Linked Accounts) */}
-                <div className={`flex border-b p-1.5 gap-1.5 shrink-0 overflow-x-auto no-scrollbar ${
-                  darkMode === 'dark' ? 'bg-stone-900/60 border-stone-850' : 'bg-stone-100/60 border-stone-200'
+                <div className={`flex border-b p-1.5 gap-1.5 shrink-0 overflow-x-auto no-scrollbar z-10 sticky top-0 ${
+                  darkMode === 'dark' ? 'bg-stone-900/90 backdrop-blur-md border-stone-850' : 'bg-stone-100/90 backdrop-blur-md border-stone-200'
                 }`}>
                   <button 
                     onClick={() => {
@@ -6422,7 +6422,7 @@ export default function Home() {
                 </div>
 
                 {/* Match History List Area */}
-                <div className="flex-1 overflow-y-auto p-3 no-scrollbar space-y-2">
+                <div className="flex-1 min-h-0 overflow-y-auto p-3 no-scrollbar space-y-2 overscroll-contain">
                   {loadingUserGames ? (
                     <div className="h-64 flex flex-col items-center justify-center gap-2">
                       <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
@@ -6522,7 +6522,7 @@ export default function Home() {
                     </>
                   )}
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}
@@ -9198,13 +9198,13 @@ export default function Home() {
           (activeTab === 'review' && (view === 'INPUT' || view === 'HISTORY')) ||
           (activeTab === 'chessle' && !chesslePuzzle)
         ) && (
-          <nav className={`h-14 border-t flex items-center justify-around shrink-0 z-40 select-none ${
+          <nav className={`h-14 border-t flex items-center justify-around shrink-0 z-40 select-none sticky bottom-0 ${
             darkMode === 'dark' 
               ? 'bg-stone-900 border-stone-850 text-slate-400' 
               : 'bg-white border-stone-200 text-slate-500'
           }`}>
             <button 
-              onClick={() => { setActiveTab('home'); }}
+              onClick={() => { setActiveTab('home'); setView('INPUT'); }}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
                 activeTab === 'home' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
               }`}
@@ -9224,7 +9224,7 @@ export default function Home() {
             </button>
             
             <button 
-              onClick={() => { setActiveTab('analyze'); }}
+              onClick={() => { setActiveTab('analyze'); setView('INPUT'); }}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
                 activeTab === 'analyze' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
               }`}
@@ -9234,7 +9234,7 @@ export default function Home() {
             </button>
             
             <button 
-              onClick={() => { setActiveTab('chessle'); setChesslePuzzle(null); }}
+              onClick={() => { setActiveTab('chessle'); setChesslePuzzle(null); setView('INPUT'); }}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
                 activeTab === 'chessle' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
               }`}
@@ -9244,7 +9244,7 @@ export default function Home() {
             </button>
             
             <button 
-              onClick={() => { setActiveTab('more'); setMoreSubView('menu'); }}
+              onClick={() => { setActiveTab('more'); setMoreSubView('menu'); setView('INPUT'); }}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
                 activeTab === 'more' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-850 text-slate-500'
               }`}
