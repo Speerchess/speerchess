@@ -73,23 +73,23 @@ const uciPvToSan = (fen: string, pv: string): string => {
         
         if (i === 0) {
           if (activeColor === 'w') {
-            formatted += `${fullmoveNumber}. ${san}`;
+            formattedMoves.push(`${fullmoveNumber}. ${san}`);
           } else {
-            formatted += `${fullmoveNumber}... ${san}`;
+            formattedMoves.push(`${fullmoveNumber}... ${san}`);
           }
         } else {
           if (activeColor === 'w') {
             fullmoveNumber++;
-            formatted += ` ${fullmoveNumber}. ${san}`;
+            formattedMoves.push(`${fullmoveNumber}. ${san}`);
           } else {
-            formatted += ` ${san}`;
+            formattedMoves.push(`${san}`);
           }
         }
       } catch {
         break; // Stop at first invalid move
       }
     }
-    return formatted || pv;
+    return formattedMoves.join(' ') || pv;
   } catch (err) {
     return pv;
   }
