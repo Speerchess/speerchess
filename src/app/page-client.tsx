@@ -2050,6 +2050,9 @@ export default function Home() {
           if (res.ok) {
             const data = await res.json();
             setOpeningData(data);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            setOpeningData({ moves: [], error: errData.error || 'ERROR' });
           }
         }
       } catch (e) {
@@ -5390,13 +5393,18 @@ export default function Home() {
               <MoreVertical size={20} />
             </button>
             {isAnalyzeSettingsOpen && (
-              <div className={`absolute right-0 mt-2 w-64 rounded-2xl shadow-xl p-4 border z-50 text-xs space-y-4 animate-fade-in ${
-                isDark ? 'bg-stone-900 border-stone-800 text-white shadow-black/80' : 'bg-white border-stone-200 text-slate-800'
-              }`}>
-                <div className="flex justify-between items-center pb-2 border-b border-stone-800/40">
-                  <span className="font-extrabold text-[10px] text-slate-400 uppercase tracking-widest">{language === 'ko' ? '분석 옵션 설정' : 'Analysis Settings'}</span>
-                  <button onClick={() => setIsAnalyzeSettingsOpen(false)} className={`p-0.5 rounded ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-100 text-slate-500'}`}><X size={14} /></button>
-                </div>
+              <>
+                <div 
+                  className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]" 
+                  onClick={() => setIsAnalyzeSettingsOpen(false)} 
+                />
+                <div className={`fixed sm:absolute top-14 right-2 sm:right-0 sm:top-full sm:mt-2 w-[calc(100vw-24px)] max-w-[280px] max-h-[75vh] overflow-y-auto rounded-3xl shadow-2xl p-4 border z-50 text-xs space-y-4 animate-fade-in no-scrollbar ${
+                  isDark ? 'bg-stone-900 border-stone-800 text-white shadow-black/90' : 'bg-white border-stone-200 text-slate-800 shadow-slate-900/20'
+                }`}>
+                  <div className="flex justify-between items-center pb-2 border-b border-stone-800/40 sticky top-0 bg-inherit pt-0 z-10">
+                    <span className="font-extrabold text-[10px] text-slate-400 uppercase tracking-widest">{language === 'ko' ? '분석 옵션 설정' : 'Analysis Settings'}</span>
+                    <button onClick={() => setIsAnalyzeSettingsOpen(false)} className={`p-1 rounded-full ${isDark ? 'hover:bg-stone-800 text-slate-400' : 'hover:bg-stone-100 text-slate-500'}`}><X size={15} /></button>
+                  </div>
                 
                 {/* 1. Explorer Settings */}
                 <div className="space-y-2">
@@ -5516,22 +5524,23 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* 3. Cloud Eval Settings */}
-                <div className="space-y-2.5 border-t border-stone-800/40 pt-2.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{language === 'ko' ? '클라우드 평가 (Lichess)' : 'Cloud Eval (Lichess)'}</label>
-                    <button 
-                      onClick={() => setCloudEvalEnabled(prev => !prev)}
-                      className={`w-7 h-4 rounded-full p-0.5 flex items-center transition-all cursor-pointer ${cloudEvalEnabled ? 'bg-blue-600 justify-end' : 'bg-stone-850 justify-start'}`}
-                    >
-                      <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
-                    </button>
+                  {/* 3. Cloud Eval Settings */}
+                  <div className="space-y-2.5 border-t border-stone-800/40 pt-2.5">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{language === 'ko' ? '클라우드 평가 (Lichess)' : 'Cloud Eval (Lichess)'}</label>
+                      <button 
+                        onClick={() => setCloudEvalEnabled(prev => !prev)}
+                        className={`w-7 h-4 rounded-full p-0.5 flex items-center transition-all cursor-pointer ${cloudEvalEnabled ? 'bg-blue-600 justify-end' : 'bg-stone-850 justify-start'}`}
+                      >
+                        <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
+                      </button>
+                    </div>
+                    {cloudEvalExhausted && (
+                      <span className="text-[8px] text-amber-400 font-bold block">{language === 'ko' ? '⚠️ 일일 한도 초과 — 로컬 엔진만 사용 중' : '⚠️ Daily limit reached — using local engine only'}</span>
+                    )}
                   </div>
-                  {cloudEvalExhausted && (
-                    <span className="text-[8px] text-amber-400 font-bold block">{language === 'ko' ? '⚠️ 일일 한도 초과 — 로컬 엔진만 사용 중' : '⚠️ Daily limit reached — using local engine only'}</span>
-                  )}
                 </div>
-              </div>
+              </>
             )}
           </div>
         </header>
@@ -5967,8 +5976,20 @@ export default function Home() {
                         </div>
                       )
                     ) : (!openingData || !openingData.moves || openingData.moves.length === 0) ? (
-                      <div className="text-center py-6 text-xs text-slate-500 font-bold italic">
-                        {language === 'ko' ? '오프닝 데이터베이스 기록이 없습니다.' : 'No opening statistics found.'}
+                      <div className="text-center py-6 px-4 space-y-2">
+                        <p className="text-xs text-slate-500 font-bold italic">
+                          {openingData?.error === 'LICHESS_LOGIN_REQUIRED'
+                            ? (language === 'ko' ? '🔒 오프닝 북 탐색기는 Lichess 계정 연동 후 이용하실 수 있습니다.' : '🔒 Sign in with Lichess to view opening statistics.')
+                            : (language === 'ko' ? '오프닝 데이터베이스 기록이 없습니다.' : 'No opening statistics found.')}
+                        </p>
+                        {openingData?.error === 'LICHESS_LOGIN_REQUIRED' && !currentUser && (
+                          <button 
+                            onClick={handleLoginWithLichess}
+                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-[11px] shadow transition-all cursor-pointer inline-flex items-center gap-1.5"
+                          >
+                            <span>⚡ Lichess 로그인</span>
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-1">

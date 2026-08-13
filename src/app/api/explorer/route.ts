@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUser } from '../../../lib/db';
+import { verifyAndExtractSession } from '../../../lib/session';
 
 export const runtime = 'edge';
 
@@ -11,27 +12,24 @@ export async function GET(request: NextRequest) {
 
     // Check if user is logged in with Lichess via session cookie
     if (rawCookie) {
-      hasSession = true;
-      try {
-        let sessionData: any = null;
-        if (rawCookie.startsWith('{')) {
-          sessionData = JSON.parse(rawCookie);
-        } else {
-          sessionData = JSON.parse(decodeURIComponent(atob(rawCookie)));
-        }
-        if (sessionData?.access_token) {
+      const sessionData = await verifyAndExtractSession(rawCookie);
+      if (sessionData && sessionData.id) {
+        hasSession = true;
+        if (sessionData.access_token) {
           userToken = sessionData.access_token;
-        } else if (sessionData?.id) {
-          const dbUser = await getUser(sessionData.id);
-          if (dbUser?.access_token) {
-            userToken = dbUser.access_token;
-          }
+        } else {
+          try {
+            const dbUser = await getUser(sessionData.id);
+            if (dbUser?.access_token) {
+              userToken = dbUser.access_token;
+            }
+          } catch (dbErr) {}
         }
-      } catch (e) {}
+      }
     }
 
     // Require Lichess login for opening book explorer
-    if (!hasSession && !process.env.LICHESS_TOKEN) {
+    if (!hasSession && !userToken) {
       return NextResponse.json({
         error: 'LICHESS_LOGIN_REQUIRED',
         message: '오프닝 북 탐색기는 Lichess 계정으로 로그인한 사용자만 이용하실 수 있습니다.'
