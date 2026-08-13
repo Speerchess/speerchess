@@ -47,6 +47,7 @@ const boardThemes = {
 
 // Convert Stockfish UCI PV moves (e.g. "g2d5 e6d5") into Standard Algebraic Notation (SAN) (e.g. "1... Bxd5 2. exd5")
 const uciPvToSan = (fen: string, pv: string): string => {
+  if (!pv || typeof pv !== 'string') return '';
   try {
     const chess = new Chess(fen);
     const uciMoves = pv.trim().split(/\s+/);
@@ -55,14 +56,14 @@ const uciPvToSan = (fen: string, pv: string): string => {
     const fenParts = fen.split(' ');
     let fullmoveNumber = parseInt(fenParts[5] || '1', 10);
     
-    let formatted = '';
+    const formattedMoves: string[] = [];
     for (let i = 0; i < uciMoves.length; i++) {
       const uci = uciMoves[i];
       if (!uci || uci.length < 4) continue;
       
       const from = uci.slice(0, 2);
       const to = uci.slice(2, 4);
-      const promotion = uci.length > 4 ? uci[4] : undefined;
+      const promotion = uci.length > 4 ? uci[4].toLowerCase() : undefined;
       
       const activeColor = chess.turn();
       try {
@@ -1927,7 +1928,7 @@ export default function Home() {
     
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=3`);
+        const res = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=2`);
         if (res.status === 404) { setCloudEvalData(null); return; }
         if (res.status === 429) { setCloudEvalExhausted(true); setCloudEvalData(null); return; }
         if (!res.ok) { setCloudEvalData(null); return; }
@@ -1957,7 +1958,7 @@ export default function Home() {
           });
         }
       } catch { setCloudEvalData(null); }
-    }, 500);
+    }, 50);
     
     return () => clearTimeout(timer);
   }, [activeTab, currentNodeId, moveTree, cloudEvalEnabled, cloudEvalExhausted, isAnalyzeEngineEnabled]);
@@ -5551,44 +5552,40 @@ export default function Home() {
           </div>
         </header>
 
-        {/* PV lines info panel */}
+        {/* PV lines info panel (Single source: Cloud Eval OR Local Engine, max 2 lines) */}
         {isAnalyzeEngineEnabled && (
-          <div className={`px-4 py-1 text-[9px] font-bold border-b flex flex-col gap-0.5 shrink-0 ${
+          <div className={`px-3 py-1 text-[9px] font-bold border-b flex flex-col gap-0.5 shrink-0 min-h-[26px] justify-center ${
             isDark ? 'bg-stone-900/60 border-stone-850 text-slate-400' : 'bg-stone-50 border-stone-200 text-slate-600'
           }`}>
-            {/* Cloud Eval lines (if available) */}
-            {cloudEvalEnabled && cloudEvalData && cloudEvalData.pvs && cloudEvalData.pvs.length > 0 && (
-              <>
-                {cloudEvalData.pvs.slice(0, 3).map((pv, idx) => {
-                  const activeFenVal = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-                  const sanLine = uciPvToSan(activeFenVal, pv.moves);
-                  const isMate = pv.mate !== undefined;
-                  const scoreVal = isMate ? pv.mate! : (pv.cp || 0);
-                  return (
-                    <div key={`cloud-${idx}`} className="flex justify-between items-center py-0.5">
-                      <span className="text-purple-400 font-extrabold w-10 text-center text-[7px]">☁ D{cloudEvalData.depth}</span>
-                      <span className="flex-1 truncate font-mono text-[9px] mx-2 text-slate-350">{sanLine}</span>
-                      <span className={`font-mono font-black shrink-0 px-1 rounded ${
-                        scoreVal >= 0 ? 'bg-green-950 text-green-400' : 'bg-red-950 text-red-400'
-                      }`}>
-                        {isMate ? `M${scoreVal}` : (scoreVal / 100 >= 0 ? `+${(scoreVal / 100).toFixed(2)}` : (scoreVal / 100).toFixed(2))}
-                      </span>
-                    </div>
-                  );
-                })}
-              </>
-            )}
-            {/* Local Engine lines */}
-            {engineLines.length === 0 && !cloudEvalData ? (
+            {/* 1. Cloud Eval lines (if available) */}
+            {cloudEvalEnabled && cloudEvalData && cloudEvalData.pvs && cloudEvalData.pvs.length > 0 ? (
+              cloudEvalData.pvs.slice(0, Math.min(engineLinesCount, 2)).map((pv, idx) => {
+                const activeFenVal = moveTree[currentNodeId]?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+                const sanLine = uciPvToSan(activeFenVal, pv.moves);
+                const isMate = pv.mate !== undefined;
+                const scoreVal = isMate ? pv.mate! : (pv.cp || 0);
+                return (
+                  <div key={`cloud-${idx}`} className="flex justify-between items-center py-0.5">
+                    <span className="text-purple-400 font-extrabold w-10 text-center text-[8px] shrink-0">☁ D{cloudEvalData.depth}</span>
+                    <span className="flex-1 truncate font-mono text-[9px] mx-1.5 text-slate-350">{sanLine}</span>
+                    <span className={`font-mono font-black shrink-0 px-1 rounded ${
+                      scoreVal >= 0 ? 'bg-green-950 text-green-400' : 'bg-red-950 text-red-400'
+                    }`}>
+                      {isMate ? `M${scoreVal}` : (scoreVal / 100 >= 0 ? `+${(scoreVal / 100).toFixed(2)}` : (scoreVal / 100).toFixed(2))}
+                    </span>
+                  </div>
+                );
+              })
+            ) : engineLines.length === 0 ? (
               <span className="flex items-center gap-1.5 italic text-slate-500 py-0.5">
                 <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                {language === 'ko' ? '엔진 분석 대기 중...' : 'Engine calculating...'}
+                {language === 'ko' ? '엔진 분석 중...' : 'Engine calculating...'}
               </span>
             ) : (
-              engineLines.slice(0, 3).map((line, idx) => (
+              engineLines.slice(0, Math.min(engineLinesCount, 2)).map((line, idx) => (
                 <div key={idx} className="flex justify-between items-center py-0.5">
-                  <span className="text-blue-400 font-extrabold w-6 text-center">PV{line.multipv}</span>
-                  <span className="flex-1 truncate font-mono text-[9px] mx-2 text-slate-350">{line.pv}</span>
+                  <span className="text-blue-400 font-extrabold w-8 text-center shrink-0">PV{line.multipv}</span>
+                  <span className="flex-1 truncate font-mono text-[9px] mx-1.5 text-slate-350">{line.pv}</span>
                   <span className={`font-mono font-black shrink-0 px-1 rounded ${
                     line.score >= 0 ? 'bg-green-950 text-green-400' : 'bg-red-950 text-red-400'
                   }`}>
@@ -5600,12 +5597,12 @@ export default function Home() {
           </div>
         )}
 
-        {/* Board & Eval container (Optimized padding and height to pull board up) */}
-        <div className="flex flex-col items-center justify-start p-2 gap-2 shrink-0">
-          <div className="flex gap-2.5 items-stretch w-full max-w-[360px]">
+        {/* Board & Eval container (Optimized snug padding to fit perfectly on mobile) */}
+        <div className="flex flex-col items-center justify-start p-1.5 gap-1.5 shrink-0">
+          <div className="flex gap-2 items-stretch w-full max-w-[340px] justify-center">
             {/* Evaluation Bar */}
             {isAnalyzeEngineEnabled && (
-              <div className="w-5 bg-stone-900 border border-stone-850 rounded-full overflow-hidden flex flex-col relative shrink-0 shadow-inner" style={{ height: '240px' }}>
+              <div className="w-4 bg-stone-900 border border-stone-850 rounded-full overflow-hidden flex flex-col relative shrink-0 shadow-inner" style={{ height: '220px' }}>
                 {boardOrientation === 'white' ? (
                   <>
                     <div className="bg-stone-900 transition-all duration-300 ease-out w-full" style={{ height: `${blackPct}%` }} />
@@ -5628,7 +5625,7 @@ export default function Home() {
             )}
             
             {/* Chessboard */}
-            <div className="flex-1 aspect-square max-w-[280px] overflow-hidden rounded-xl shadow-md border border-stone-250/60 bg-white relative">
+            <div className="flex-1 aspect-square max-w-[260px] sm:max-w-[280px] overflow-hidden rounded-xl shadow-md border border-stone-250/60 bg-white relative">
               <Chessboard 
                 options={{
                   position: activeFen,
