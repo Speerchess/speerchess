@@ -6237,8 +6237,8 @@ export default function Home() {
   };
 
   return (
-    <div className="h-[100dvh] min-h-[100dvh] max-h-[100dvh] sm:h-auto sm:min-h-screen bg-stone-900 text-slate-800 flex justify-center items-center p-0 sm:p-4 font-sans selection:bg-slate-200 selection:text-slate-900 antialiased overflow-hidden">
-      <div className="w-full max-w-md h-[100dvh] max-h-[100dvh] sm:h-[880px] sm:min-h-[850px] sm:max-h-[900px] sm:rounded-3xl sm:shadow-2xl sm:border border-stone-800 bg-[#fafaf9] flex flex-col overflow-hidden relative">
+    <div className="h-[100dvh] min-h-[100dvh] sm:h-auto sm:min-h-screen bg-stone-900 text-slate-800 flex justify-center items-center p-0 sm:p-4 font-sans selection:bg-slate-200 selection:text-slate-900 antialiased overflow-hidden sm:overflow-y-auto">
+      <div className="w-full max-w-md h-[100dvh] max-h-[100dvh] sm:h-[min(860px,94vh)] sm:max-h-[94vh] sm:rounded-3xl sm:shadow-2xl sm:border border-stone-800 bg-[#fafaf9] flex flex-col overflow-hidden relative">
         
         {/* VIEW: LOADING (Matching Screenshot 2) */}
         {view === 'LOADING' && (
