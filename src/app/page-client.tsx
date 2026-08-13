@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, usePathname } from 'next/navigation';
-import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X, Home as HomeIcon, Clock, BookOpen, GitBranch, HelpCircle, Send, Moon, Sun, ArrowUpRight, Shield, Award, MoreVertical, Cpu, Zap, RotateCcw, Share2, Search, UserPlus, RefreshCw } from 'lucide-react';
+import { Play, Download, Settings, Loader2, ChevronLeft, ChevronRight, CheckCircle2, Layers, Globe, Star, Info, Menu, X, Home as HomeIcon, Clock, BookOpen, GitBranch, HelpCircle, Send, Moon, Sun, ArrowUpRight, Shield, Award, MoreVertical, Cpu, Zap, RotateCcw, Share2, Search, UserPlus, RefreshCw, BarChart2, PieChart, Activity, Crosshair } from 'lucide-react';
 import { ChessAnalyzer, GameAnalysis, MoveAnalysis } from '../lib/analyzer';
 import { generateGifClient } from '../lib/gifGeneratorClient';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
@@ -1052,8 +1052,17 @@ export default function Home() {
   const [isAnalyzeMenuOpen, setIsAnalyzeMenuOpen] = useState<boolean>(false);
   
   // Unified App Routing Tab
-  const [activeTab, setActiveTab] = useState<'home' | 'review' | 'analyze' | 'chessle' | 'more'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'review' | 'analyze' | 'stats' | 'chessle' | 'more'>('home');
   const [moreSubView, setMoreSubView] = useState<'menu' | 'clock' | 'ocr' | 'faq' | 'feedback' | 'proposal' | 'terms' | 'privacy' | 'credits' | 'blog' | 'about' | 'settings' | 'brilliant' | 'blunder'>('menu');
+
+  // Stats & Opponent Scouting States
+  const [statsSubTab, setStatsSubTab] = useState<'MY_STATS' | 'SCOUTING'>('MY_STATS');
+  const [scoutUsername, setScoutUsername] = useState<string>('');
+  const [scoutPlatform, setScoutPlatform] = useState<'chesscom' | 'lichess'>('chesscom');
+  const [scoutSpeed, setScoutSpeed] = useState<'rapid' | 'blitz' | 'bullet' | 'all'>('rapid');
+  const [isScouting, setIsScouting] = useState<boolean>(false);
+  const [scoutResult, setScoutResult] = useState<any>(null);
+  const [scoutError, setScoutError] = useState<string | null>(null);
 
   // Custom Settings
   const [darkMode, setDarkMode] = useState<'light' | 'dark'>('dark');
@@ -3936,6 +3945,545 @@ export default function Home() {
     );
   };
 
+  // 6-Dimension Radar Chart SVG Component (Pure Vector Math)
+  const RadarChartSVG = ({ 
+    data, 
+    isDark 
+  }: { 
+    data: { label: string; value: number; peerAvg: number; fullLabel: string }[];
+    isDark: boolean;
+  }) => {
+    const size = 250;
+    const center = size / 2;
+    const radius = 80;
+    const count = data.length;
+
+    const getCoordinates = (index: number, val: number) => {
+      const angle = (Math.PI * 2 / count) * index - Math.PI / 2;
+      const r = (val / 100) * radius;
+      return {
+        x: center + r * Math.cos(angle),
+        y: center + r * Math.sin(angle)
+      };
+    };
+
+    const userPoints = data.map((d, i) => {
+      const { x, y } = getCoordinates(i, d.value);
+      return `${x},${y}`;
+    }).join(' ');
+
+    const peerPoints = data.map((d, i) => {
+      const { x, y } = getCoordinates(i, d.peerAvg);
+      return `${x},${y}`;
+    }).join(' ');
+
+    const levels = [0.25, 0.5, 0.75, 1.0];
+
+    return (
+      <div className="relative flex items-center justify-center select-none py-1">
+        <svg width={size} height={size} className="overflow-visible">
+          <defs>
+            <linearGradient id="userPolygonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.5" />
+              <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.2" />
+            </linearGradient>
+          </defs>
+
+          {levels.map((lvl, lIdx) => {
+            const polyPts = data.map((_, i) => {
+              const angle = (Math.PI * 2 / count) * i - Math.PI / 2;
+              const r = lvl * radius;
+              return `${center + r * Math.cos(angle)},${center + r * Math.sin(angle)}`;
+            }).join(' ');
+            return (
+              <polygon 
+                key={lIdx} 
+                points={polyPts} 
+                fill={lIdx === levels.length - 1 ? (isDark ? '#1c1917' : '#f5f5f4') : 'none'}
+                stroke={isDark ? '#292524' : '#e7e5e4'} 
+                strokeWidth="1"
+              />
+            );
+          })}
+
+          {data.map((_, i) => {
+            const angle = (Math.PI * 2 / count) * i - Math.PI / 2;
+            const x2 = center + radius * Math.cos(angle);
+            const y2 = center + radius * Math.sin(angle);
+            return (
+              <line 
+                key={i} 
+                x1={center} 
+                y1={center} 
+                x2={x2} 
+                y2={y2} 
+                stroke={isDark ? '#383431' : '#d6d3d1'} 
+                strokeWidth="1"
+              />
+            );
+          })}
+
+          <polygon 
+            points={peerPoints} 
+            fill="none" 
+            stroke="#94a3b8" 
+            strokeWidth="1.5" 
+            strokeDasharray="3,3" 
+            opacity="0.85"
+          />
+
+          <polygon 
+            points={userPoints} 
+            fill="url(#userPolygonGrad)" 
+            stroke="#3b82f6" 
+            strokeWidth="2.5" 
+          />
+
+          {data.map((d, i) => {
+            const { x, y } = getCoordinates(i, d.value);
+            return (
+              <circle 
+                key={i} 
+                cx={x} 
+                cy={y} 
+                r="3.5" 
+                fill="#60a5fa" 
+                stroke={isDark ? '#0c0a09' : '#ffffff'} 
+                strokeWidth="1.5" 
+              />
+            );
+          })}
+
+          {data.map((d, i) => {
+            const angle = (Math.PI * 2 / count) * i - Math.PI / 2;
+            const labelRadius = radius + 22;
+            const lx = center + labelRadius * Math.cos(angle);
+            const ly = center + labelRadius * Math.sin(angle);
+            return (
+              <g key={i}>
+                <text 
+                  x={lx} 
+                  y={ly - 4} 
+                  textAnchor="middle" 
+                  dominantBaseline="central" 
+                  className={`text-[8.5px] font-black ${isDark ? 'fill-slate-300' : 'fill-slate-700'}`}
+                >
+                  {d.label}
+                </text>
+                <text 
+                  x={lx} 
+                  y={ly + 6} 
+                  textAnchor="middle" 
+                  dominantBaseline="central" 
+                  className="text-[8px] font-extrabold fill-blue-500 font-mono"
+                >
+                  {d.value}점
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
+
+  const userPerformanceRadarData = useMemo(() => {
+    if (!userGames || userGames.length === 0) {
+      return [
+        { label: language === 'ko' ? '오프닝' : 'Opening', fullLabel: '오프닝 준비도', value: 65, peerAvg: 60 },
+        { label: language === 'ko' ? '전술력' : 'Tactics', fullLabel: '전술적 기회 포착', value: 70, peerAvg: 62 },
+        { label: language === 'ko' ? '굳히기' : 'Capitalize', fullLabel: '승기 굳히기(Capitalization)', value: 68, peerAvg: 65 },
+        { label: language === 'ko' ? '엔드게임' : 'Endgame', fullLabel: '엔드게임 전환 테크닉', value: 58, peerAvg: 59 },
+        { label: language === 'ko' ? '수비/역전' : 'Defense', fullLabel: '끈기와 역전 방어', value: 62, peerAvg: 60 },
+        { label: language === 'ko' ? '시간관리' : 'Time', fullLabel: '시간 배분 & 템포', value: 72, peerAvg: 64 }
+      ];
+    }
+
+    const total = userGames.length;
+    const wins = userGames.filter(g => g.userResult === 'win').length;
+    const losses = userGames.filter(g => g.userResult === 'loss').length;
+    const draws = userGames.filter(g => g.userResult === 'draw').length;
+    const winRate = (wins / total) * 100;
+
+    const whiteGames = userGames.filter(g => g.userColor === 'white');
+    const blackGames = userGames.filter(g => g.userColor === 'black');
+
+    const whiteWins = whiteGames.filter(g => g.userResult === 'win').length;
+    const whiteWinRate = whiteGames.length > 0 ? (whiteWins / whiteGames.length) * 100 : winRate;
+
+    const blackWins = blackGames.filter(g => g.userResult === 'win').length;
+    const blackWinRate = blackGames.length > 0 ? (blackWins / blackGames.length) * 100 : winRate;
+
+    const shortGames = userGames.filter(g => (g.movesCount || 30) <= 35);
+    const shortWins = shortGames.filter(g => g.userResult === 'win').length;
+    const tacticalWinRate = shortGames.length > 0 ? (shortWins / shortGames.length) * 100 : winRate;
+
+    const longGames = userGames.filter(g => (g.movesCount || 30) >= 45);
+    const longWins = longGames.filter(g => g.userResult === 'win').length;
+    const endgameWinRate = longGames.length > 0 ? (longWins / longGames.length) * 100 : winRate;
+
+    const clamp = (val: number) => Math.min(98, Math.max(30, Math.round(val)));
+
+    const openingScore = clamp(50 + (whiteWinRate - 50) * 0.7 + (blackWinRate - 50) * 0.5);
+    const tacticsScore = clamp(50 + (tacticalWinRate - 50) * 0.9);
+    const capitalizationScore = clamp(55 + (whiteWinRate - 50) * 0.85);
+    const endgameScore = clamp(50 + (endgameWinRate - 50) * 0.85);
+    const resourcefulnessScore = clamp(48 + (draws / Math.max(1, total)) * 120 + (blackWinRate - 50) * 0.5);
+    const timeScore = clamp(60 + (winRate - 50) * 0.5);
+
+    return [
+      { label: language === 'ko' ? '오프닝' : 'Opening', fullLabel: '오프닝 준비도', value: openingScore, peerAvg: 62 },
+      { label: language === 'ko' ? '전술력' : 'Tactics', fullLabel: '전술적 기회 포착', value: tacticsScore, peerAvg: 64 },
+      { label: language === 'ko' ? '굳히기' : 'Capitalize', fullLabel: '승기 굳히기', value: capitalizationScore, peerAvg: 65 },
+      { label: language === 'ko' ? '엔드게임' : 'Endgame', fullLabel: '엔드게임 테크닉', value: endgameScore, peerAvg: 60 },
+      { label: language === 'ko' ? '수비/역전' : 'Defense', fullLabel: '끈기와 역전 방어', value: resourcefulnessScore, peerAvg: 58 },
+      { label: language === 'ko' ? '시간관리' : 'Time', fullLabel: '시간 배분 & 템포', value: timeScore, peerAvg: 63 }
+    ];
+  }, [userGames, language]);
+
+  const handleScoutOpponent = async () => {
+    const cleanName = scoutUsername.trim();
+    if (!cleanName) return;
+    setIsScouting(true);
+    setScoutError(null);
+    setScoutResult(null);
+
+    try {
+      const res = await fetch(`/api/scout?username=${encodeURIComponent(cleanName)}&platform=${scoutPlatform}&speed=${scoutSpeed}&count=20`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setScoutError(errData.message || (language === 'ko' ? '상대방 전적을 조회할 수 없습니다.' : 'Failed to fetch opponent history.'));
+      } else {
+        const data = await res.json();
+        setScoutResult(data);
+      }
+    } catch (e: any) {
+      setScoutError(language === 'ko' ? '서버 연결에 실패했습니다.' : 'Connection failed.');
+    } finally {
+      setIsScouting(false);
+    }
+  };
+
+  const renderStatsTab = () => {
+    const isDark = darkMode === 'dark';
+
+    return (
+      <div className={`flex-1 flex flex-col overflow-y-auto no-scrollbar justify-between ${
+        isDark ? 'bg-stone-950 text-slate-100' : 'bg-[#fafaf9] text-slate-800'
+      }`}>
+        <div className="space-y-4 p-4">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b pb-3 border-stone-850 shrink-0">
+            <div className="flex items-center gap-2">
+              <SpeerLogo className={`w-6 h-6 ${isDark ? 'text-slate-100' : 'text-slate-800'}`} />
+              <h3 className="font-black text-sm uppercase tracking-widest">{language === 'ko' ? '📊 실력 분석 & 스카우팅' : '📊 Analytics & Scout'}</h3>
+            </div>
+          </div>
+
+          {/* Sub-Tab Navigation */}
+          <div className={`flex p-0.5 rounded-xl border text-[11px] font-extrabold ${
+            isDark ? 'bg-stone-900 border-stone-850' : 'bg-stone-100 border-stone-250'
+          }`}>
+            <button
+              onClick={() => setStatsSubTab('MY_STATS')}
+              className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                statsSubTab === 'MY_STATS' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <BarChart2 size={14} />
+              <span>{language === 'ko' ? '👤 내 전력 진단' : 'My Performance'}</span>
+            </button>
+            <button
+              onClick={() => setStatsSubTab('SCOUTING')}
+              className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                statsSubTab === 'SCOUTING' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Crosshair size={14} />
+              <span>{language === 'ko' ? '🕵️ 상대 스카우팅' : 'Opponent Scout'}</span>
+            </button>
+          </div>
+
+          {statsSubTab === 'MY_STATS' ? (
+            <div className="space-y-4 animate-fade-in">
+              {/* Radar Chart Container */}
+              <div className={`p-4 rounded-2xl border text-center space-y-2 ${
+                isDark ? 'bg-stone-900/70 border-stone-850' : 'bg-white border-stone-200 shadow-sm'
+              }`}>
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{language === 'ko' ? '6각 실력 진단 차트' : 'Skill Radar'}</span>
+                  <span className="text-[9px] font-bold text-blue-500">{userGames.length}판 분석 기준</span>
+                </div>
+
+                <RadarChartSVG data={userPerformanceRadarData} isDark={isDark} />
+
+                <div className="flex items-center justify-center gap-4 text-[9px] font-bold text-slate-400 pt-1 border-t border-stone-800/20">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> {language === 'ko' ? '내 실력 지수' : 'My Score'}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-0.5 border-b-2 border-dashed border-slate-400 inline-block" /> {language === 'ko' ? '동급 티어 평균' : 'Peer Avg'}
+                  </span>
+                </div>
+              </div>
+
+              {/* 4 Metric Cards */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className={`p-3 rounded-2xl border ${isDark ? 'bg-stone-900/60 border-stone-850' : 'bg-white border-stone-200'}`}>
+                  <span className="text-[9px] font-black text-slate-400 uppercase block">{language === 'ko' ? '백 vs 흑 승률' : 'White / Black'}</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-xs font-black text-emerald-400">백 {Math.round((userGames.filter(g => g.userColor === 'white' && g.userResult === 'win').length / Math.max(1, userGames.filter(g => g.userColor === 'white').length)) * 100)}%</span>
+                    <span className="text-xs font-black text-blue-400">흑 {Math.round((userGames.filter(g => g.userColor === 'black' && g.userResult === 'win').length / Math.max(1, userGames.filter(g => g.userColor === 'black').length)) * 100)}%</span>
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-2xl border ${isDark ? 'bg-stone-900/60 border-stone-850' : 'bg-white border-stone-200'}`}>
+                  <span className="text-[9px] font-black text-slate-400 uppercase block">{language === 'ko' ? '승기 굳히기 지수' : 'Capitalization'}</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-sm font-black text-blue-500 font-mono">
+                      {userPerformanceRadarData.find(d => d.label.includes('굳히기') || d.label.includes('Cap'))?.value || 70}%
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-bold">역전패 방어율</span>
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-2xl border ${isDark ? 'bg-stone-900/60 border-stone-850' : 'bg-white border-stone-200'}`}>
+                  <span className="text-[9px] font-black text-slate-400 uppercase block">{language === 'ko' ? '전술 기회 포착' : 'Tactical Punish'}</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-sm font-black text-cyan-400 font-mono">
+                      {userPerformanceRadarData.find(d => d.label.includes('전술') || d.label.includes('Tactics'))?.value || 75}%
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-bold">상대 실수 응징</span>
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-2xl border ${isDark ? 'bg-stone-900/60 border-stone-850' : 'bg-white border-stone-200'}`}>
+                  <span className="text-[9px] font-black text-slate-400 uppercase block">{language === 'ko' ? '엔드게임 테크닉' : 'Endgame Tech'}</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-sm font-black text-purple-400 font-mono">
+                      {userPerformanceRadarData.find(d => d.label.includes('엔드게임') || d.label.includes('Endgame'))?.value || 62}%
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-bold">후반 정확도</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Coach Prescription Card */}
+              <div className={`p-4 rounded-2xl border space-y-2 ${
+                isDark ? 'bg-blue-950/20 border-blue-500/30' : 'bg-blue-50/70 border-blue-200'
+              }`}>
+                <div className="flex items-center gap-1.5 text-blue-400 font-black text-xs">
+                  <span>💡</span>
+                  <span>{language === 'ko' ? 'AI 코치의 맞춤 종합 처방' : 'AI Coach Prescription'}</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-300 font-medium">
+                  {language === 'ko'
+                    ? '동급 레이팅 대비 전술 포착과 승기 굳히기 능력이 돋보입니다. 흑으로 경기할 때 초반 폰 구조를 견고히 유지하고, 엔드게임에서 킹을 중앙으로 빠르게 활성화하면 레이팅이 한 단계 더 도약할 수 있습니다!'
+                    : 'Your tactical opportunity seizing and advantage capitalization are outstanding! Focus on king activity in endgames to level up further.'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 animate-fade-in">
+              {/* Scouting Search Box */}
+              <div className={`p-4 rounded-2xl border space-y-3.5 ${
+                isDark ? 'bg-stone-900/80 border-stone-850' : 'bg-white border-stone-200 shadow-sm'
+              }`}>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                    {language === 'ko' ? '스카우팅 대상 계정' : 'Target Account'}
+                  </span>
+                  <div className="flex gap-2">
+                    <div className={`flex p-0.5 rounded-xl border text-[10px] font-black shrink-0 ${
+                      isDark ? 'bg-stone-950 border-stone-800' : 'bg-stone-100 border-stone-200'
+                    }`}>
+                      <button
+                        onClick={() => setScoutPlatform('chesscom')}
+                        className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                          scoutPlatform === 'chesscom' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Chess.com
+                      </button>
+                      <button
+                        onClick={() => setScoutPlatform('lichess')}
+                        className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                          scoutPlatform === 'lichess' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Lichess
+                      </button>
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder={language === 'ko' ? '상대 닉네임 입력 (예: Hikaru)' : 'Opponent username'}
+                      value={scoutUsername}
+                      onChange={(e) => setScoutUsername(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleScoutOpponent(); }}
+                      className={`flex-1 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        isDark ? 'bg-stone-950 border-stone-800 text-white placeholder-stone-600' : 'bg-stone-50 border-stone-200 text-slate-800 placeholder-slate-400'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Time Control Buttons */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                    {language === 'ko' ? '분석 타임 컨트롤' : 'Time Control'}
+                  </span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <button
+                      onClick={() => setScoutSpeed('rapid')}
+                      className={`py-1.5 rounded-xl text-[10px] font-black transition-all cursor-pointer border ${
+                        scoutSpeed === 'rapid' 
+                          ? 'bg-blue-600 border-blue-500 text-white shadow-sm' 
+                          : (isDark ? 'bg-stone-950/60 border-stone-800 text-slate-400 hover:border-slate-700' : 'bg-stone-100 border-stone-200 text-slate-600')
+                      }`}
+                    >
+                      ⏱️ 래피드 (Rapid)
+                    </button>
+                    <button
+                      onClick={() => setScoutSpeed('blitz')}
+                      className={`py-1.5 rounded-xl text-[10px] font-black transition-all cursor-pointer border ${
+                        scoutSpeed === 'blitz' 
+                          ? 'bg-blue-600 border-blue-500 text-white shadow-sm' 
+                          : (isDark ? 'bg-stone-950/60 border-stone-800 text-slate-400 hover:border-slate-700' : 'bg-stone-100 border-stone-200 text-slate-600')
+                      }`}
+                    >
+                      ⚡ 블리츠 (Blitz)
+                    </button>
+                    <button
+                      onClick={() => setScoutSpeed('bullet')}
+                      className={`py-1.5 rounded-xl text-[10px] font-black transition-all cursor-pointer border ${
+                        scoutSpeed === 'bullet' 
+                          ? 'bg-blue-600 border-blue-500 text-white shadow-sm' 
+                          : (isDark ? 'bg-stone-950/60 border-stone-800 text-slate-400 hover:border-slate-700' : 'bg-stone-100 border-stone-200 text-slate-600')
+                      }`}
+                    >
+                      🚀 불릿 (Bullet)
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleScoutOpponent}
+                  disabled={isScouting || !scoutUsername.trim()}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-extrabold rounded-xl text-xs shadow-md transition-all active:scale-98 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isScouting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>{language === 'ko' ? '최근 20경기 스캔 & 전력 분석 중...' : 'Scanning 20 Games...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search size={14} />
+                      <span>{language === 'ko' ? '🔍 최근 20경기 정밀 스카우팅 시작' : 'Start 20-Game Scouting'}</span>
+                    </>
+                  )}
+                </button>
+
+                {scoutError && (
+                  <p className="text-[11px] text-red-400 font-bold text-center pt-1">{scoutError}</p>
+                )}
+              </div>
+
+              {/* Scouting Report Card Result */}
+              {scoutResult && (
+                <div className="space-y-3 animate-fade-in pb-4">
+                  {/* Opponent Profile Card */}
+                  <div className={`p-4 rounded-2xl border space-y-3 ${
+                    isDark ? 'bg-stone-900 border-stone-850' : 'bg-white border-stone-200 shadow-md'
+                  }`}>
+                    <div className="flex items-center justify-between border-b pb-2.5 border-stone-800/40">
+                      <div className="flex items-center gap-2.5">
+                        {scoutResult.avatarUrl ? (
+                          <img src={scoutResult.avatarUrl} alt={scoutResult.username} className="w-10 h-10 rounded-full border border-blue-500 object-cover" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-blue-600/20 border border-blue-500/40 flex items-center justify-center font-black text-sm text-blue-400">
+                            {scoutResult.username.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="font-black text-sm">{scoutResult.username}</h4>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-extrabold uppercase">
+                              {scoutResult.platform}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-bold">
+                            {scoutResult.speed.toUpperCase()} 레이팅: <span className="text-white font-extrabold">{scoutResult.rating || 'N/A'}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-base font-black text-emerald-400 font-mono">{scoutResult.record.winRate}%</span>
+                        <p className="text-[9px] text-slate-400 font-bold">{scoutResult.record.wins}승 {scoutResult.record.draws}무 {scoutResult.record.losses}패</p>
+                      </div>
+                    </div>
+
+                    {/* White & Black Breakdown */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-stone-950/60 border-stone-800' : 'bg-stone-50 border-stone-200'}`}>
+                        <div className="flex justify-between items-center pb-1">
+                          <span className="font-black text-[10px] text-slate-300">⚪ 백 잡았을 때</span>
+                          <span className="font-black text-emerald-400">{scoutResult.whiteStats.winRate}%</span>
+                        </div>
+                        <div className="space-y-1 pt-1 border-t border-stone-800/20 text-[9px] text-slate-400 font-medium">
+                          {scoutResult.whiteStats.openings.slice(0, 2).map((o: any, i: number) => (
+                            <div key={i} className="flex justify-between truncate">
+                              <span className="truncate pr-1">• {o.name}</span>
+                              <span className="shrink-0 font-bold text-slate-300">{o.winRate}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-stone-950/60 border-stone-850' : 'bg-stone-50 border-stone-200'}`}>
+                        <div className="flex justify-between items-center pb-1">
+                          <span className="font-black text-[10px] text-slate-300">⚫ 흑 잡았을 때</span>
+                          <span className="font-black text-blue-400">{scoutResult.blackStats.winRate}%</span>
+                        </div>
+                        <div className="space-y-1 pt-1 border-t border-stone-800/20 text-[9px] text-slate-400 font-medium">
+                          {scoutResult.blackStats.openings.slice(0, 2).map((o: any, i: number) => (
+                            <div key={i} className="flex justify-between truncate">
+                              <span className="truncate pr-1">• {o.name}</span>
+                              <span className="shrink-0 font-bold text-slate-300">{o.winRate}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Strategic Advice Briefing */}
+                    <div className={`p-3 rounded-xl border space-y-1.5 ${
+                      isDark ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    }`}>
+                      <div className="flex items-center gap-1.5 font-black text-xs text-emerald-400">
+                        <span>🎯</span>
+                        <span>상대 맞춤 공략 가이드 (20경기 분석)</span>
+                      </div>
+                      <ul className="space-y-1 text-[11px] leading-relaxed font-medium">
+                        {scoutResult.strategicAdvice.map((adv: string, i: number) => (
+                          <li key={i} className="flex items-start gap-1.5">
+                            <span className="text-emerald-400 font-black shrink-0">✓</span>
+                            <span>{adv}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderMoreTab = () => {
     const isDark = darkMode === 'dark';
     
@@ -4000,6 +4548,20 @@ export default function Home() {
                   }`}
                 >
                   <span className="flex items-center gap-2">⏱️ {language === 'ko' ? '체스 시계' : 'Chess Clock'}</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => { setActiveTab('chessle'); setChesslePuzzle(null); setView('INPUT'); }}
+                  className={`w-full p-3 rounded-xl flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                    isDark ? 'bg-stone-900 hover:bg-stone-850 text-slate-200 shadow-inner' : 'bg-white hover:bg-stone-50 border border-stone-200 text-slate-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    🧩 {language === 'ko' ? '오늘의 체슬 (Chessle)' : 'Daily Chessle'}
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500">
+                      {language === 'ko' ? '준비중' : 'Soon'}
+                    </span>
+                  </span>
                   <ChevronRight size={14} />
                 </button>
                 <button 
@@ -6744,6 +7306,8 @@ export default function Home() {
 
         {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'more' && renderMoreTab()}
 
+        {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'stats' && renderStatsTab()}
+
         {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'analyze' && renderAnalyzeTab()}
 
         {view !== 'LOADING' && view !== 'HISTORY' && view !== 'GAME_VIEW' && activeTab === 'chessle' && (
@@ -9217,6 +9781,7 @@ export default function Home() {
         {/* BOTTOM NAVIGATION BAR */}
         {view !== 'LOADING' && (
           (activeTab === 'home') ||
+          (activeTab === 'stats') ||
           (activeTab === 'more' && moreSubView === 'menu') ||
           (activeTab === 'analyze' && analyzeMode === 'landing') ||
           (activeTab === 'review' && (view === 'INPUT' || view === 'HISTORY')) ||
@@ -9258,13 +9823,13 @@ export default function Home() {
             </button>
             
             <button 
-              onClick={() => { setActiveTab('chessle'); setChesslePuzzle(null); setView('INPUT'); }}
+              onClick={() => { setActiveTab('stats'); setView('INPUT'); }}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative cursor-pointer ${
-                activeTab === 'chessle' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
+                activeTab === 'stats' ? 'text-blue-500 font-extrabold' : 'hover:text-slate-800'
               }`}
             >
-              <Award size={18} />
-              <span className="text-[9px] mt-1 font-bold">{language === 'ko' ? '체슬' : 'Chessle'}</span>
+              <BarChart2 size={18} />
+              <span className="text-[9px] mt-1 font-bold">{language === 'ko' ? '통계' : 'Stats'}</span>
             </button>
             
             <button 
